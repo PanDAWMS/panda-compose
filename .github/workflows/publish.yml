@@ -33,7 +33,7 @@ jobs:
             *) echo "Unsupported architecture: ${ARCH}" >&2; exit 1 ;;
           esac
           COMPOSE_DIR=~/.docker/cli-plugins
-          COMPOSE_BIN="${COMPOSE_DIR}/docker-compose"
+          COMPOSE_BIN="${COMPOSE_DIR}/docker-compose-${COMPOSE_ARCH}"
           mkdir -p "${COMPOSE_DIR}"
           curl -sSL \
             "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-${COMPOSE_ARCH}" \
