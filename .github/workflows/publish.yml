@@ -41,7 +41,7 @@ jobs:
           curl -sSL \
             "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/checksums.txt" \
             -o /tmp/docker-compose-checksums.txt
-          grep " docker-compose-linux-${COMPOSE_ARCH}$" /tmp/docker-compose-checksums.txt | sha256sum -c -
+          grep " *docker-compose-linux-${COMPOSE_ARCH}$" /tmp/docker-compose-checksums.txt | sha256sum -c -
           chmod +x "${COMPOSE_BIN}"
           docker compose version
 
