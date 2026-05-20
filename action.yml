@@ -2,7 +2,7 @@ name: 'Setup PanDA'
 description: >
   Start a self-contained PanDA server stack via Docker Compose.
 
-author: 'eic'
+author: 'PanDAWMS'
 
 branding:
   icon: 'server'
@@ -10,7 +10,7 @@ branding:
 
 inputs:
   ref:
-    description: 'Git ref (branch, tag, SHA) of eic/panda-compose to check out'
+    description: 'Git ref (branch, tag, SHA) of PanDAWMS/panda-compose to check out'
     default: 'main'
   timeout:
     description: 'Seconds to wait for the PanDA server to become healthy'
@@ -39,10 +39,10 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Check out eic/panda-compose
+    - name: Check out PanDAWMS/panda-compose
       uses: actions/checkout@v6
       with:
-        repository: eic/panda-compose
+        repository: PanDAWMS/panda-compose
         ref: ${{ inputs.ref }}
         path: __panda_compose__
 

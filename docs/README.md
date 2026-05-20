@@ -25,7 +25,7 @@ Startup order: `postgres` + `activemq` + `mariadb` → `panda-server` → `init`
 ## Quick start
 
 ```bash
-git clone https://github.com/eic/panda-compose.git
+git clone https://github.com/PanDAWMS/panda-compose.git
 cd panda-compose
 cp .env.example .env
 docker compose up -d

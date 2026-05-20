@@ -1,7 +1,7 @@
 # OCI Artifact
 
 panda-compose publishes its `docker-compose.yml` as an OCI artifact to the
-[GitHub Container Registry](https://ghcr.io/eic/panda-compose) on every push to `main`
+[GitHub Container Registry](https://ghcr.io/PanDAWMS/panda-compose) on every push to `main`
 and on every version tag. It can also be triggered manually via `workflow_dispatch`.
 
 ## What is published
@@ -19,7 +19,7 @@ Docker Compose v2.34.0+ `include` and `-f oci://` syntax.
 ### Inspect the compose configuration
 
 ```bash
-docker compose -f oci://ghcr.io/eic/panda-compose:latest config
+docker compose -f oci://ghcr.io/PanDAWMS/panda-compose:latest config
 ```
 
 ### Include in another compose file
@@ -27,7 +27,7 @@ docker compose -f oci://ghcr.io/eic/panda-compose:latest config
 ```yaml
 # docker-compose.yml in an external project
 include:
-  - oci://ghcr.io/eic/panda-compose:latest
+  - oci://ghcr.io/PanDAWMS/panda-compose:latest
 
 services:
   my-tool:
@@ -42,7 +42,7 @@ services:
 > temporary directory.  The config files are not present there, so services that require
 > them will fail to start.
 >
-> **Use [`uses: eic/panda-compose@main`](setup-panda-action.md) in GitHub Actions
+> **Use [`uses: PanDAWMS/panda-compose@main`](setup-panda-action.md) in GitHub Actions
 > instead** — it checks out the full repository (including config files) and waits for
 > the stack to be healthy before your job continues.
 
@@ -50,8 +50,8 @@ services:
 
 ```yaml
 include:
-  - oci://ghcr.io/eic/panda-compose:v1   # semver tag
-  - oci://ghcr.io/eic/panda-compose:latest  # always latest main
+  - oci://ghcr.io/PanDAWMS/panda-compose:v1   # semver tag
+  - oci://ghcr.io/PanDAWMS/panda-compose:latest  # always latest main
 ```
 
 ## Available tags
@@ -82,5 +82,5 @@ The OCI artifact is produced with `docker compose publish --yes`, which:
 ```bash
 # install docker compose v2.34.0+ if needed
 cp .env.example .env
-docker compose publish --yes ghcr.io/eic/panda-compose:my-tag
+docker compose publish --yes ghcr.io/PanDAWMS/panda-compose:my-tag
 ```

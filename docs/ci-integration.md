@@ -9,7 +9,7 @@ The simplest way to integrate PanDA in your CI is with the reusable composite ac
 
 ```yaml
 - name: Setup PanDA
-  uses: eic/panda-compose@main
+  uses: PanDAWMS/panda-compose@main
 ```
 
 This single step starts the full stack and waits for it to be healthy. See
@@ -48,7 +48,7 @@ jobs:
       - name: Checkout panda-compose
         uses: actions/checkout@v4
         with:
-          repository: eic/panda-compose
+          repository: PanDAWMS/panda-compose
           path: panda-compose
 
       - name: Start PanDA stack
@@ -103,7 +103,7 @@ Pin to a release tag or commit SHA for reproducibility:
       - name: Checkout panda-compose
         uses: actions/checkout@v4
         with:
-          repository: eic/panda-compose
+          repository: PanDAWMS/panda-compose
           ref: v1.0.0          # or a commit SHA
           path: panda-compose
 ```

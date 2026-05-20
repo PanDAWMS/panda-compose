@@ -11,7 +11,7 @@ This page walks you through bringing up the full PanDA stack and submitting your
 ## 1. Clone the repository
 
 ```bash
-git clone https://github.com/eic/panda-compose.git
+git clone https://github.com/PanDAWMS/panda-compose.git
 cd panda-compose
 ```
 
