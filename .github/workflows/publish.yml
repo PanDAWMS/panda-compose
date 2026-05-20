@@ -23,27 +23,9 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Set up Docker Compose
-        # docker compose publish requires v2.34.0+; ensure a suitable version is present
-        run: |
-          COMPOSE_VERSION=v2.35.0
-          ARCH="$(uname -m)"
-          case "${ARCH}" in
-            x86_64)  COMPOSE_ARCH=x86_64  ;;
-            aarch64|arm64) COMPOSE_ARCH=aarch64 ;;
-            *) echo "Unsupported architecture: ${ARCH}" >&2; exit 1 ;;
-          esac
-          COMPOSE_DIR=~/.docker/cli-plugins
-          COMPOSE_BIN="${COMPOSE_DIR}/docker-compose-linux-${COMPOSE_ARCH}"
-          mkdir -p "${COMPOSE_DIR}"
-          curl -sSL \
-            "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-${COMPOSE_ARCH}" \
-            -o "${COMPOSE_BIN}"
-          curl -sSL \
-            "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/checksums.txt" \
-            -o /tmp/docker-compose-checksums.txt
-          grep " *docker-compose-linux-${COMPOSE_ARCH}$" /tmp/docker-compose-checksums.txt | sha256sum -c -
-          chmod +x "${COMPOSE_BIN}"
-          docker compose version
+        uses: docker/setup-compose-action@v2
+        with:
+          version: latest
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v4
