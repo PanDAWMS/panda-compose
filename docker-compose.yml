@@ -30,9 +30,10 @@ services:
       - panda-db-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d ${PANDA_DB_NAME:-panda_db}"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
+      interval: 20s
+      timeout: 10s
+      retries: 15
+      start_period: 60s
 
   # ────────────────────────────────────────────────────────────────
   # ActiveMQ — message broker for PanDA server ↔ JEDI communication
