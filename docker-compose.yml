@@ -142,7 +142,7 @@ services:
     ports:
       - "25080:80"    # HTTP — used by panda-client
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:80/server/panda/isAlive | grep -q 'alive=yes' || exit 1"]
+      test: ["CMD-SHELL", "curl -sf ${PANDA_API_URL:-http://localhost:80/api/v1}/system/is_alive | grep -q \"'success': True\\|\\\"success\\\": true\" || exit 1"]
       interval: 20s
       timeout: 10s
       retries: 15
