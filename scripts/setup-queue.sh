@@ -30,10 +30,14 @@ DECLARE
     cnt INT := 0;
 BEGIN
     FOR t IN
-        SELECT table_name
-        FROM information_schema.tables
-        WHERE table_schema = 'doma_panda'
-          AND table_type = 'BASE TABLE'
+        SELECT c.relname AS table_name
+        FROM pg_class c
+        JOIN pg_namespace n ON c.relnamespace = n.oid
+        WHERE n.nspname = 'doma_panda'
+          AND c.relkind IN ('r', 'p')          -- base + partitioned parents
+          AND NOT EXISTS (                      -- skip partitions/children
+              SELECT 1 FROM pg_inherits i WHERE i.inhrelid = c.oid
+          )
     LOOP
         EXECUTE format(
             'CREATE OR REPLACE VIEW atlas_panda.%I AS SELECT * FROM doma_panda.%I',
@@ -57,6 +61,48 @@ psql -v ON_ERROR_STOP=1 -c \
    VALUES ('JEDI', 0, 0, 24)
    ON CONFLICT (component) DO NOTHING;"
 echo "JEDI schema version row inserted."
+
+# Step 1c: create a DEFAULT partition for every range-partitioned parent that
+# has none. The panda-database image ships ~24 partitioned tables
+# (jobparamstable, jobsarchived4, filestable4, datasets, jedi_*, harvester_*, ...)
+# with ZERO partitions attached, which makes every INSERT fail with
+#   CheckViolation: no partition of relation "<table>" found for row
+# Externally that surfaces as pandajob-submit returning pandaID=NULL
+# (insertNewJob → jobparamstable) and, once past that, jobs stuck in
+# 'holding' forever (archiveJob → jobsarchived4). A single catch-all
+# DEFAULT partition per parent unblocks every insert without prescribing
+# a partitioning strategy — production deployments can drop these and
+# put a real time-range scheme in their place.
+echo "Ensuring every partitioned table has a default partition..."
+psql -v ON_ERROR_STOP=1 << ENDOFSQL
+SET ROLE ${PANDA_DB_USER};
+DO \$\$
+DECLARE
+    p RECORD;
+    cnt INT := 0;
+BEGIN
+    FOR p IN
+        SELECT n.nspname AS schema_name, c.relname AS table_name
+        FROM pg_class c
+        JOIN pg_namespace n ON c.relnamespace = n.oid
+        WHERE c.relkind = 'p'
+          AND n.nspname = 'doma_panda'
+          AND NOT EXISTS (
+              SELECT 1 FROM pg_inherits i WHERE i.inhparent = c.oid
+          )
+    LOOP
+        EXECUTE format(
+            'CREATE TABLE %I.%I PARTITION OF %I.%I DEFAULT',
+            p.schema_name, p.table_name || '_default',
+            p.schema_name, p.table_name
+        );
+        cnt := cnt + 1;
+    END LOOP;
+    RAISE NOTICE 'Created % default partition(s)', cnt;
+END\$\$;
+RESET ROLE;
+ENDOFSQL
+echo "Default partitions ensured."
 
 # Step 2: register PANDA_COMPOSE_LOCAL queue using the panda user credentials.
 export PGPASSWORD="${PANDA_DB_PASSWORD:-panda_secret}"
