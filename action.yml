@@ -65,7 +65,19 @@ runs:
     - name: Wait for PanDA server
       shell: bash
       run: |
-        __panda_compose__/scripts/healthcheck.sh ${{ inputs.timeout }}
+        if ! __panda_compose__/scripts/healthcheck.sh ${{ inputs.timeout }}; then
+          echo "::group::Post-mortem: docker compose ps"
+          docker compose \
+            -f __panda_compose__/docker-compose.yml \
+            -p ${{ inputs.project-name }} ps || true
+          echo "::endgroup::"
+          echo "::group::Post-mortem: all service logs"
+          docker compose \
+            -f __panda_compose__/docker-compose.yml \
+            -p ${{ inputs.project-name }} logs --tail 500 || true
+          echo "::endgroup::"
+          exit 1
+        fi
 
     - name: Wait for JEDI
       shell: bash
@@ -82,10 +94,16 @@ runs:
           sleep 10
         done
         if [[ "$STATUS" != "healthy" ]]; then
+          echo "::group::Post-mortem: docker compose ps"
           docker compose \
             -f __panda_compose__/docker-compose.yml \
-            -p ${{ inputs.project-name }} \
-            logs panda-jedi --tail=50
+            -p ${{ inputs.project-name }} ps || true
+          echo "::endgroup::"
+          echo "::group::Post-mortem: all service logs"
+          docker compose \
+            -f __panda_compose__/docker-compose.yml \
+            -p ${{ inputs.project-name }} logs --tail 500 || true
+          echo "::endgroup::"
           echo "ERROR: JEDI did not become healthy within 2 minutes (status: $STATUS)"
           exit 1
         fi
