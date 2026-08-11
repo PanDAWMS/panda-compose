@@ -116,6 +116,10 @@ services:
       PANDA_ACTIVEMQ_LIST: ${PANDA_ACTIVEMQ_LIST:-activemq:61613}
       PANDA_ACTIVEMQ_PASSWD_panda: ${PANDA_ACTIVEMQ_PASSWD_panda:-panda_mq_secret}
       PANDA_ACTIVEMQ_PASSWD_jedi: ${PANDA_ACTIVEMQ_PASSWD_jedi:-jedi_mq_secret}
+      PANDA_URL: ${PANDA_URL:-http://localhost:80/server/panda}
+      PANDA_URL_SSL: ${PANDA_URL_SSL:-http://localhost:80/server/panda}
+      PANDA_API_URL: ${PANDA_API_URL:-http://localhost:80/api/v1}
+      PANDA_API_URL_SSL: ${PANDA_API_URL_SSL:-http://localhost:80/api/v1}
       # Server — run as current user to avoid atlpan/zp user-switching in Docker
       PANDA_NO_ROOT: "1"
       PANDA_AUTH: ${PANDA_AUTH:-None}
