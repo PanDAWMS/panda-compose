@@ -97,6 +97,8 @@ services:
         condition: service_healthy
       activemq:
         condition: service_healthy
+      init:
+        condition: service_completed_successfully
     environment:
       # Database
       PANDA_DB_BACKEND: ${PANDA_DB_BACKEND:-postgres}
@@ -224,15 +226,12 @@ services:
   # ────────────────────────────────────────────────────────────────
   # Init — one-shot service that registers PANDA_COMPOSE_LOCAL in
   # the PanDA server schedconfig so JEDI can route jobs to it.
-  # Runs after panda-server is healthy; exits 0 on success.
   # ────────────────────────────────────────────────────────────────
   init:
     image: postgres:15
     restart: "no"
     depends_on:
       postgres:
-        condition: service_healthy
-      panda-server:
         condition: service_healthy
     volumes:
       - ./scripts:/scripts:ro
