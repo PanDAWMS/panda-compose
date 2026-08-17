@@ -1,0 +1,30 @@
+{
+  "PANDA_COMPOSE_LOCAL": {
+    "panda_queue":        "PANDA_COMPOSE_LOCAL",
+    "nickname":           "PANDA_COMPOSE_LOCAL",
+    "panda_resource":     "PANDA_COMPOSE_LOCAL",
+    "atlas_site":         "PANDA_COMPOSE_LOCAL",
+    "site_name":          "PANDA_COMPOSE_LOCAL",
+    "status":             "online",
+    "queue_type":         "unified",
+    "type":               "analysis",
+    "cloud":              "LOCAL",
+    "nqueue":             10,
+    "maxtime":            3600,
+    "maxmemory":          2000,
+    "corecount":          1,
+    "maxcpucount":        1,
+    "mintime":            0,
+    "maxinputsize":       0,
+    "vo":                 "wlcg",
+    "harvester":          "panda-compose-harvester",
+    "harvester_id":       "panda-compose-harvester",
+    "use_newmover":       "Y",
+    "catchall":           "singularity=false",
+    "pilot_version":      "latest",
+    "job_type":           "unified",
+    "direct_access_lan":  false,
+    "direct_access_wan":  false,
+    "astorages":          {}
+  }
+}

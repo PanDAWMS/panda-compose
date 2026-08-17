@@ -1,0 +1,19 @@
+{
+  "PANDA_COMPOSE_LOCAL": {
+    "state": "ACTIVE",
+    "tier_level": 1,
+    "datapolicies": [],
+    "ddmendpoints": {
+      "MOCK-POSIX": {
+        "state": "ACTIVE"
+      }
+    },
+    "presources": {
+      "PANDA_COMPOSE_LOCAL": {
+        "PANDA_COMPOSE_LOCAL": {
+          "state": "ACTIVE"
+        }
+      }
+    }
+  }
+}
