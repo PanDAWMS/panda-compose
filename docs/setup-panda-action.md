@@ -1,29 +1,29 @@
 # setup-panda action
 
-The `eic/panda-compose` repository is itself a reusable
+The `PanDAWMS/panda-compose` repository is itself a reusable
 [composite GitHub Action](https://docs.github.com/en/actions/creating-actions/creating-a-composite-action).
-Referencing it with `uses: eic/panda-compose@main` (or a pinned tag) starts the full
+Referencing it with `uses: PanDAWMS/panda-compose@main` (or a pinned tag) starts the full
 PanDA stack and waits for it to become healthy — in a single step.
 
 ## Usage
 
 ```yaml
 - name: Setup PanDA
-  uses: eic/panda-compose@main
+  uses: PanDAWMS/panda-compose@main
 ```
 
 Or pin to a specific release:
 
 ```yaml
 - name: Setup PanDA
-  uses: eic/panda-compose@v1
+  uses: PanDAWMS/panda-compose@v1
 ```
 
 ## Inputs
 
 | Input | Default | Description |
 |---|---|---|
-| `ref` | `main` | Git ref (branch, tag, SHA) of `eic/panda-compose` to check out. Useful when you need a specific version of the stack config. |
+| `ref` | `main` | Git ref (branch, tag, SHA) of `PanDAWMS/panda-compose` to check out. Useful when you need a specific version of the stack config. |
 | `timeout` | `300` | Seconds to wait for the PanDA server to become healthy. |
 | `project-name` | `panda-compose` | Docker Compose project name. Determines container name prefixes (e.g. `panda-compose-panda-jedi-1`). Change only if the default conflicts with other services on the runner. |
 | `env-overrides` | `""` | Newline-separated `KEY=VALUE` pairs appended to `.env` before the stack starts. Use this to override environment-based settings such as default passwords; published host ports remain fixed by the compose file. |
@@ -45,7 +45,7 @@ The action writes the following into `$GITHUB_ENV` so all subsequent steps see t
 | `PANDA_URL_SSL` | `http://localhost:25080/server/panda` |
 | `X509_USER_PROXY` | `/dev/null` (suppresses grid-proxy warnings) |
 | `PANDA_COMPOSE_PROJECT` | the `project-name` input value |
-| `PANDA_COMPOSE_DIR` | path to the checked-out `eic/panda-compose` tree (`__panda_compose__`) |
+| `PANDA_COMPOSE_DIR` | path to the checked-out `PanDAWMS/panda-compose` tree (`__panda_compose__`) |
 
 ## Teardown
 
@@ -71,7 +71,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup PanDA
-        uses: eic/panda-compose@main
+        uses: PanDAWMS/panda-compose@main
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -113,7 +113,7 @@ Use `env-overrides` to change passwords or other settings without modifying `.en
 
 ```yaml
 - name: Setup PanDA
-  uses: eic/panda-compose@main
+  uses: PanDAWMS/panda-compose@main
   with:
     env-overrides: |
       PANDA_DB_PASSWORD=my_custom_secret
@@ -125,8 +125,8 @@ Use `env-overrides` to change passwords or other settings without modifying `.en
 For reproducible CI, pin to a release tag or commit SHA:
 
 ```yaml
-- uses: eic/panda-compose@v1          # semver tag (recommended)
-- uses: eic/panda-compose@abc1234     # commit SHA (most precise)
+- uses: PanDAWMS/panda-compose@v1          # semver tag (recommended)
+- uses: PanDAWMS/panda-compose@abc1234     # commit SHA (most precise)
 ```
 
 ## Timing

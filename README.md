@@ -25,7 +25,7 @@ Service startup order: `postgres` + `activemq` + `mariadb` â†’ `panda-server` â†
 
 ```bash
 # 1. Clone and enter the repository
-git clone https://github.com/eic/panda-compose.git
+git clone https://github.com/PanDAWMS/panda-compose.git
 cd panda-compose
 
 # 2. Create your environment file (edit secrets as needed)
