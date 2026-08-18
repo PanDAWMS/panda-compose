@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # setup-queue.sh — register the PANDA_COMPOSE_LOCAL compute queue directly in the
-# PanDA PostgreSQL database.  Called by the 'init' service after panda-server is healthy.
+# PanDA PostgreSQL database.  Called by the 'init' service after postgres is healthy.
 # Runs as the postgres superuser so it can create the atlas_panda schema alias.
 set -euo pipefail
 
@@ -15,6 +15,43 @@ QUEUE_NAME="PANDA_COMPOSE_LOCAL"
 export PGPASSWORD
 
 psql() { command psql -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" -d "${PGDATABASE}" "$@"; }
+
+SQLS_DIR=/docker-entrypoint-initdb.d/sqls
+NEED_FINISH=$(psql -tAqc "SELECT NOT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'doma_pandameta')")
+if [ "$NEED_FINISH" = "t" ]; then
+    echo "Finishing interrupted panda-database schema init..."
+
+    echo "  creating missing doma_panda.worker_node_queue..."
+    psql -v ON_ERROR_STOP=1 <<'ENDOFSQL'
+CREATE TABLE IF NOT EXISTS doma_panda.worker_node_queue (
+    site         VARCHAR(64)  NOT NULL,
+    host_name    VARCHAR(255) NOT NULL,
+    panda_queue  VARCHAR(64)  NOT NULL,
+    last_seen    TIMESTAMP
+);
+ALTER TABLE doma_panda.worker_node_queue OWNER TO panda;
+ENDOFSQL
+
+    for f in \
+        pg_PANDA_SCHEDULER_JOBS.sql \
+        pg_PANDAMETA_TABLE.sql \
+        pg_PANDAMETA_SEQUENCE.sql \
+        pg_PANDAARCH_TABLE.sql \
+        pg_PANDABIGMON_TABLE.sql \
+        pg_PANDABIGMON_SEQUENCE.sql \
+        pg_PANDABIGMON_VIEW.sql \
+        pg_PANDABIGMON_TRIGGER.sql \
+        pg_PANDABIGMON_PROCEDURE.sql \
+        pg_DEFT_TABLE.sql \
+        pg_PARTITION.sql
+    do
+        echo "  applying ${f}..."
+        psql -tAqc "SELECT pg_read_file('${SQLS_DIR}/${f}')" | psql
+    done
+    echo "Finished panda-database schema init."
+else
+    echo "panda-database schema already complete; skipping finish step."
+fi
 
 # Step 1: create atlas_panda schema as an alias for doma_panda.
 # Some PanDA server code paths hard-code "ATLAS_PANDA" table references (Oracle legacy);

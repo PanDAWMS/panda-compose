@@ -142,6 +142,21 @@ jobs:
             exit 1
           fi
 
+      - name: Dump all service logs
+        if: always()
+        env:
+          PANDA_COMPOSE_DIR: ${{ env.PANDA_COMPOSE_DIR || '__panda_compose__' }}
+          PANDA_COMPOSE_PROJECT: ${{ env.PANDA_COMPOSE_PROJECT || 'panda-compose' }}
+        run: |
+          echo "::group::docker compose ps"
+          docker compose -f "$PANDA_COMPOSE_DIR/docker-compose.yml" \
+            -p "$PANDA_COMPOSE_PROJECT" ps || true
+          echo "::endgroup::"
+          echo "::group::All service logs (tail 500 per service)"
+          docker compose -f "$PANDA_COMPOSE_DIR/docker-compose.yml" \
+            -p "$PANDA_COMPOSE_PROJECT" logs --tail 500 || true
+          echo "::endgroup::"
+
       - name: Tear down PanDA stack
         if: always()
         run: |
