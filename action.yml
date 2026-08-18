@@ -40,7 +40,7 @@ runs:
   using: 'composite'
   steps:
     - name: Check out PanDAWMS/panda-compose
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         repository: PanDAWMS/panda-compose
         ref: ${{ inputs.ref }}
