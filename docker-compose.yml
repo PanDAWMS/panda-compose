@@ -195,6 +195,7 @@ services:
       PANDA_URL: ${PANDA_URL:-http://panda-server:80/server/panda}
       PANDA_URL_SSL: ${PANDA_URL_SSL:-http://panda-server:80/server/panda}
       PANDA_VERIFY_HOST: "off"
+      PANDA_RUCIO_ACCOUNT: ${PANDA_RUCIO_ACCOUNT:-root}
       http_proxy: ${HTTP_PROXY:-}
       https_proxy: ${HTTPS_PROXY:-}
     volumes:
