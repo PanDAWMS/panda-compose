@@ -165,6 +165,8 @@ services:
       - |
         cp /opt/panda/sandbox/* /data/panda/
         chmod +x /data/panda/init-jedi /data/panda/run-jedi-crons /data/panda/run-jedi-services
+        rm -f ${PANDA_LOCK_DIR:-/var/run/panda}/panda_jedi.pid \
+              ${PANDA_LOCK_DIR:-/var/run/panda}/panda_jedi
         /opt/panda/bin/python /data/panda/process_template.py
         /data/panda/run-jedi-services
         sleep infinity & wait
