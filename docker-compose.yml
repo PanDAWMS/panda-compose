@@ -140,6 +140,7 @@ services:
     volumes:
       - ./config/panda/panda_common.cfg:/etc/panda/panda_common.cfg:ro
       - ./config/panda/panda_server.cfg:/etc/panda/panda_server.cfg:ro
+      - ./config/panda/cric:/etc/panda/cric:ro
       - ./config/panda/sandbox:/opt/panda/sandbox:ro
       - panda-server-logs:/var/log/panda
       - panda-cache:/var/cache/pandaserver
@@ -199,6 +200,7 @@ services:
       - ./config/panda/panda_common.cfg:/etc/panda/panda_common.cfg:ro
       - ./config/panda/panda_server.cfg:/etc/panda/panda_server.cfg:ro
       - ./config/panda/panda_jedi.cfg:/etc/panda/panda_jedi.cfg:ro
+      - ./config/panda/cric:/etc/panda/cric:ro
       - ./config/jedi/sandbox:/opt/panda/sandbox:ro
       - panda-jedi-logs:/var/log/panda
     healthcheck:

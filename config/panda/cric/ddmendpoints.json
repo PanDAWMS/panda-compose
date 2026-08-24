@@ -1,0 +1,9 @@
+{
+  "MOCK-POSIX": {
+    "state": "ACTIVE",
+    "token": "MOCK",
+    "site": "PANDA_COMPOSE_LOCAL",
+    "type": "OS_LOGS",
+    "is_tape": false
+  }
+}
