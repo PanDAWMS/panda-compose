@@ -162,66 +162,6 @@ services:
       start_period: 60s
 
   # ────────────────────────────────────────────────────────────────
-  # PanDA JEDI — workload management daemon
-  # Same sandbox startup pattern as panda-server.
-  # ────────────────────────────────────────────────────────────────
-  panda-jedi:
-    image: ghcr.io/pandawms/panda-jedi:latest
-    restart: unless-stopped
-    command:
-      - /bin/bash
-      - -c
-      - |
-        cp /opt/panda/sandbox/* /data/panda/
-        chmod +x /data/panda/init-jedi /data/panda/run-jedi-crons /data/panda/run-jedi-services
-        rm -f ${PANDA_LOCK_DIR:-/var/run/panda}/panda_jedi.pid \
-              ${PANDA_LOCK_DIR:-/var/run/panda}/panda_jedi
-        /opt/panda/bin/python /data/panda/process_template.py
-        /data/panda/run-jedi-services
-        sleep infinity & wait
-    depends_on:
-      panda-server:
-        condition: service_healthy
-      init:
-        condition: service_completed_successfully
-    environment:
-      PANDA_DB_BACKEND: ${PANDA_DB_BACKEND:-postgres}
-      PANDA_DB_HOST: ${PANDA_DB_HOST:-postgres}
-      PANDA_DB_PORT: ${PANDA_DB_PORT:-5432}
-      PANDA_DB_USER: ${PANDA_DB_USER:-panda}
-      PANDA_DB_PASSWORD: ${PANDA_DB_PASSWORD:-panda_secret}
-      PANDA_DB_NAME: ${PANDA_DB_NAME:-panda_db}
-      PANDA_DB_SCHEMAPANDA: ${PANDA_DB_SCHEMAPANDA:-DOMA_PANDA}
-      PANDA_DB_SCHEMAMETA: ${PANDA_DB_SCHEMAMETA:-DOMA_PANDAMETA}
-      PANDA_DB_SCHEMAPANDAARCH: ${PANDA_DB_SCHEMAPANDAARCH:-DOMA_PANDAARCH}
-      PANDA_DB_SCHEMAJEDI: ${PANDA_DB_SCHEMAJEDI:-DOMA_PANDA}
-      PANDA_DB_SCHEMADEFT: ${PANDA_DB_SCHEMADEFT:-DOMA_DEFT}
-      PANDA_ACTIVEMQ_LIST: ${PANDA_ACTIVEMQ_LIST:-activemq:61613}
-      PANDA_ACTIVEMQ_PASSWD_panda: ${PANDA_ACTIVEMQ_PASSWD_panda:-panda_mq_secret}
-      PANDA_ACTIVEMQ_PASSWD_jedi: ${PANDA_ACTIVEMQ_PASSWD_jedi:-jedi_mq_secret}
-      PANDA_NO_ROOT: "1"
-      PYTHONPATH: /opt/panda/lib/python3.11/site-packages/pandacommon
-      PANDA_URL: ${PANDA_URL:-http://panda-server:80/server/panda}
-      PANDA_URL_SSL: ${PANDA_URL_SSL:-http://panda-server:80/server/panda}
-      PANDA_VERIFY_HOST: "off"
-      PANDA_RUCIO_ACCOUNT: ${PANDA_RUCIO_ACCOUNT:-root}
-      http_proxy: ${HTTP_PROXY:-}
-      https_proxy: ${HTTPS_PROXY:-}
-    volumes:
-      - ./config/panda/panda_common.cfg:/etc/panda/panda_common.cfg:ro
-      - ./config/panda/panda_server.cfg:/etc/panda/panda_server.cfg:ro
-      - ./config/panda/panda_jedi.cfg:/etc/panda/panda_jedi.cfg:ro
-      - ./config/panda/cric:/etc/panda/cric:ro
-      - ./config/jedi/sandbox:/opt/panda/sandbox:ro
-      - panda-jedi-logs:/var/log/panda
-    healthcheck:
-      test: ["CMD-SHELL", "test -f /var/run/panda/panda_jedi.pid && kill -0 $(cat /var/run/panda/panda_jedi.pid) 2>/dev/null || exit 1"]
-      interval: 20s
-      timeout: 5s
-      retries: 10
-      start_period: 60s
-
-  # ────────────────────────────────────────────────────────────────
   # MariaDB — Harvester database
   # ────────────────────────────────────────────────────────────────
   mariadb:
