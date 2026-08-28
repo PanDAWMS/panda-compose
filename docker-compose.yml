@@ -155,7 +155,7 @@ services:
       - "25080:80"    # HTTP — used by panda-client
       - "25443:443"   # HTTPS — used by panda-client for sandbox upload
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf ${PANDA_API_URL:-http://localhost:80/api/v1}/system/is_alive | grep -q \\\"'success': True\\\\|\\\\\\\"success\\\\\\\": true\\\" || exit 1"]
+      test: ["CMD-SHELL", "curl -sf ${PANDA_API_URL:-http://localhost:80/api/v1}/system/is_alive | grep -q \"'success': True\" || exit 1"]
       interval: 20s
       timeout: 10s
       retries: 15
