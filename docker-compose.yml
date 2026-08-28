@@ -265,7 +265,6 @@ services:
 volumes:
   panda-db-data:
   panda-server-logs:
-  panda-jedi-logs:
   panda-cache:
   activemq-data:
   harvester-db-data:
