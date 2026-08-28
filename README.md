@@ -18,7 +18,7 @@ This repository mirrors the component set of
 | `mariadb` | `bitnami/mariadb:latest` | Harvester database |
 | `harvester` | `ghcr.io/hsf/harvester:latest` | Resource-facing pilot submission service |
 
-Service startup order: `postgres` + `activemq` + `mariadb` → `panda-server` + `panda-jedi` → `harvester`
+Service startup order: `postgres` + `activemq` + `mariadb` → `panda-server` → `harvester`
 
 ## Quick start
 
