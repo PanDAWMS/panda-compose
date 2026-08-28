@@ -79,36 +79,6 @@ runs:
           exit 1
         fi
 
-    - name: Wait for JEDI
-      shell: bash
-      run: |
-        echo "Waiting for JEDI to become healthy (timeout 120s)..."
-        DEADLINE=$((SECONDS + 120))
-        STATUS="unknown"
-        while [[ $SECONDS -lt $DEADLINE ]]; do
-          STATUS=$(docker inspect \
-            --format='{{.State.Health.Status}}' \
-            ${{ inputs.project-name }}-panda-jedi-1 2>/dev/null || echo "not_found")
-          echo "  JEDI health: $STATUS"
-          [[ "$STATUS" == "healthy" ]] && break
-          sleep 10
-        done
-        if [[ "$STATUS" != "healthy" ]]; then
-          echo "::group::Post-mortem: docker compose ps"
-          docker compose \
-            -f __panda_compose__/docker-compose.yml \
-            -p ${{ inputs.project-name }} ps || true
-          echo "::endgroup::"
-          echo "::group::Post-mortem: all service logs"
-          docker compose \
-            -f __panda_compose__/docker-compose.yml \
-            -p ${{ inputs.project-name }} logs --tail 500 || true
-          echo "::endgroup::"
-          echo "ERROR: JEDI did not become healthy within 2 minutes (status: $STATUS)"
-          exit 1
-        fi
-        echo "JEDI is healthy."
-
     - name: Export environment variables
       shell: bash
       run: |
