@@ -77,7 +77,8 @@ services:
       - -c
       - |
         cp /opt/panda/sandbox/* /data/panda/
-        chmod +x /data/panda/init-panda /data/panda/run-panda-crons /data/panda/run-panda-services
+        cp /opt/panda/sandbox-jedi/* /data/panda/
+        chmod +x /data/panda/init-panda /data/panda/run-panda-crons /data/panda/run-panda-services /data/panda/init-jedi /data/panda/run-jedi-crons /data/panda/run-jedi-services
         mkdir -p /var/log/panda/pandacache/jedilog
         chmod -R 777 /var/log/panda/pandacache || true
         if [ -f /opt/panda/sandbox/panda_server-httpd.conf ]; then
@@ -91,14 +92,16 @@ services:
               ${PANDA_LOCK_DIR:-/var/run/panda}/panda_daemon.pid \
               ${PANDA_LOCK_DIR:-/var/run/panda}/panda_daemon.pid.lock
         /data/panda/run-panda-services
+        # Start JEDI in background (same container, same pandaserver package)
+        /data/panda/init-jedi
+        /data/panda/run-jedi-crons &
+        /etc/rc.d/init.d/panda-jedi start
         sleep infinity & wait
     depends_on:
       postgres:
         condition: service_healthy
       activemq:
         condition: service_healthy
-      init:
-        condition: service_completed_successfully
     environment:
       # Database
       PANDA_DB_BACKEND: ${PANDA_DB_BACKEND:-postgres}
