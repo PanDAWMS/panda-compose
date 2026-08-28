@@ -15,11 +15,10 @@ This repository mirrors the component set of
 | `postgres` | `ghcr.io/pandawms/panda-database:latest` | PanDA + JEDI database (postgres with pre-installed schema) |
 | `activemq` | `ghcr.io/pandawms/panda-activemq:latest` | Message broker (STOMP/OpenWire) |
 | `panda-server` | `ghcr.io/pandawms/panda-server:latest` | PanDA REST API + Apache httpd |
-| `panda-jedi` | `ghcr.io/pandawms/panda-jedi:latest` | JEDI workload management daemon |
 | `mariadb` | `bitnami/mariadb:latest` | Harvester database |
 | `harvester` | `ghcr.io/hsf/harvester:latest` | Resource-facing pilot submission service |
 
-Service startup order: `postgres` + `activemq` + `mariadb` → `panda-server` → `panda-jedi` + `harvester`
+Service startup order: `postgres` + `activemq` + `mariadb` → `panda-server` + `panda-jedi` → `harvester`
 
 ## Quick start
 
