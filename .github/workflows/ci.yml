@@ -12,7 +12,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup PanDA stack
         uses: ./
@@ -49,7 +49,7 @@ jobs:
           echo "Harvester is healthy."
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
@@ -141,6 +141,21 @@ jobs:
             echo "ERROR: job did not reach 'finished' within 10 minutes (last status: $JOB_STATUS)"
             exit 1
           fi
+
+      - name: Dump all service logs
+        if: always()
+        env:
+          PANDA_COMPOSE_DIR: ${{ env.PANDA_COMPOSE_DIR || '__panda_compose__' }}
+          PANDA_COMPOSE_PROJECT: ${{ env.PANDA_COMPOSE_PROJECT || 'panda-compose' }}
+        run: |
+          echo "::group::docker compose ps"
+          docker compose -f "$PANDA_COMPOSE_DIR/docker-compose.yml" \
+            -p "$PANDA_COMPOSE_PROJECT" ps || true
+          echo "::endgroup::"
+          echo "::group::All service logs (tail 500 per service)"
+          docker compose -f "$PANDA_COMPOSE_DIR/docker-compose.yml" \
+            -p "$PANDA_COMPOSE_PROJECT" logs --tail 500 || true
+          echo "::endgroup::"
 
       - name: Tear down PanDA stack
         if: always()

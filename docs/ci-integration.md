@@ -9,7 +9,7 @@ The simplest way to integrate PanDA in your CI is with the reusable composite ac
 
 ```yaml
 - name: Setup PanDA
-  uses: eic/panda-compose@main
+  uses: PanDAWMS/panda-compose@main
 ```
 
 This single step starts the full stack and waits for it to be healthy. See
@@ -23,7 +23,7 @@ stack on every push and pull request:
 
 1. Start the stack with `docker compose up -d`
 2. Wait for `panda-server` to become healthy (up to 5 min)
-3. Wait for `panda-jedi` to become healthy (up to 2 min)
+3. **JEDI runs inside `panda-server` as background processes — no separate healthcheck needed**
 4. Submit a job in a `python:3.12-alpine` container (exercises per-job `--container` selection)
 5. Poll until the job reaches `finished` (up to 10 min)
 6. Tear down with `docker compose down -v`
@@ -48,7 +48,7 @@ jobs:
       - name: Checkout panda-compose
         uses: actions/checkout@v4
         with:
-          repository: eic/panda-compose
+          repository: PanDAWMS/panda-compose
           path: panda-compose
 
       - name: Start PanDA stack
@@ -60,18 +60,6 @@ jobs:
       - name: Wait for PanDA server
         working-directory: panda-compose
         run: ./scripts/healthcheck.sh 300
-
-      - name: Wait for JEDI
-        run: |
-          echo "Waiting for JEDI (up to 120s)..."
-          DEADLINE=$((SECONDS + 120))
-          while [[ $SECONDS -lt $DEADLINE ]]; do
-            STATUS=$(docker inspect --format='{{.State.Health.Status}}' \
-              panda-compose-panda-jedi-1 2>/dev/null || echo unknown)
-            [[ "$STATUS" == "healthy" ]] && echo "JEDI healthy" && break
-            sleep 10
-          done
-          [[ "$STATUS" == "healthy" ]] || { echo "JEDI not healthy"; exit 1; }
 
       # ── Your integration tests go here ─────────────────────────────
       - name: Run your tool against PanDA
@@ -103,7 +91,7 @@ Pin to a release tag or commit SHA for reproducibility:
       - name: Checkout panda-compose
         uses: actions/checkout@v4
         with:
-          repository: eic/panda-compose
+          repository: PanDAWMS/panda-compose
           ref: v1.0.0          # or a commit SHA
           path: panda-compose
 ```
@@ -153,9 +141,8 @@ content is passed as `sh -c '<content>'`.
 | Workflow timeout | Recommended value |
 |---|---|
 | Stack startup (healthcheck) | 5 min |
-| JEDI startup | 2 min |
 | Job completion poll | 10 min |
-| **Total `timeout-minutes`** | **≥ 25** |
+| **Total `timeout-minutes`** | **≥ 15** |
 
 The dominant latency is the adder daemon loop (~6 min) that moves jobs from
 `transferring` to `finished`. Allow at least 10 minutes for the poll.
@@ -174,8 +161,8 @@ are required.
 ## Debugging CI failures
 
 **Job stuck at `defined`:**
-JEDI was not healthy before the job was submitted. Add a JEDI health wait step
-(see pattern above) and ensure `timeout-minutes` is large enough.
+JEDI was not ready before the job was submitted. Ensure the `panda-server` healthcheck passes
+(which includes JEDI process startup) and `timeout-minutes` is large enough.
 
 **Job reached `failed` (exit code 127):**
 The transformation binary does not exist inside the worker container image.
