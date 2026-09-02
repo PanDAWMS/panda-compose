@@ -73,7 +73,12 @@ runs:
         # 'dependency failed to start: container ...-postgres-1 is unhealthy'.
         compose up -d postgres activemq mariadb
 
-        pg="${{ inputs.project-name }}-postgres-1"
+        pg="$(compose ps -q postgres)"
+        if [ -z "$pg" ]; then
+          echo "ERROR: could not find postgres container for project '${{ inputs.project-name }}'" >&2
+          compose ps || true
+          exit 1
+        fi
         echo "Waiting for Postgres to settle into a stable healthy state..."
         stable=0
         for _ in $(seq 1 60); do
