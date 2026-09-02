@@ -60,7 +60,7 @@ runs:
         compose() {
           docker compose \
             -f __panda_compose__/docker-compose.yml \
-            -p ${{ inputs.project-name }} "$@"
+            -p "${{ inputs.project-name }}" "$@"
         }
 
         # Bring up the base services first and let Postgres complete its
