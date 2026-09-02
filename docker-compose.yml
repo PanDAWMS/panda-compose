@@ -49,7 +49,6 @@ services:
       JAVA_TOOL_OPTIONS: "-XX:-UseContainerSupport"
     ports:
       - "61613:61613"   # STOMP (used by panda-server / harvester)
-      - "61616:61616"   # OpenWire
       - "8161:8161"     # Web console (admin)
     volumes:
       - activemq-data:/appdata/activemq
