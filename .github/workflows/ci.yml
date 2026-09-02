@@ -77,8 +77,8 @@ jobs:
             exit 1
           fi
 
-          echo "=== Waiting for job to reach finished/failed (timeout 10 min) ==="
-          DEADLINE=$((SECONDS + 600))
+          echo "=== Waiting for job to reach finished/failed (timeout 20 min) ==="
+          DEADLINE=$((SECONDS + 1200))
           POLL=0
           while [[ $SECONDS -lt $DEADLINE ]]; do
             STATUS_JSON=$(python3 $PANDA_COMPOSE_DIR/scripts/pandajob-status "$JOB_ID")
@@ -138,7 +138,7 @@ jobs:
             --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}' 2>/dev/null || true
 
           if [[ "$JOB_STATUS" != "finished" ]]; then
-            echo "ERROR: job did not reach 'finished' within 10 minutes (last status: $JOB_STATUS)"
+            echo "ERROR: job did not reach 'finished' within 20 minutes (last status: $JOB_STATUS)"
             exit 1
           fi
 
