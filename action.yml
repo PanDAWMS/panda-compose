@@ -57,10 +57,53 @@ runs:
     - name: Start PanDA stack
       shell: bash
       run: |
-        docker compose \
-          -f __panda_compose__/docker-compose.yml \
-          -p ${{ inputs.project-name }} \
-          up -d
+        compose() {
+          docker compose \
+            -f __panda_compose__/docker-compose.yml \
+            -p "${{ inputs.project-name }}" "$@"
+        }
+
+        # Bring up the base services first and let Postgres complete its
+        # first-run initialization in isolation. On a fresh CI volume the
+        # image runs initdb + panda_db_init.sh and restarts the container
+        # once (RestartCount=1); during that window it listens on the Unix
+        # socket only and briefly transitions through unhealthy. Attaching
+        # dependents via depends_on: service_healthy at the same time races
+        # this and intermittently aborts with
+        # 'dependency failed to start: container ...-postgres-1 is unhealthy'.
+        compose up -d postgres activemq mariadb
+
+        pg="$(compose ps -q postgres)"
+        if [ -z "$pg" ]; then
+          echo "ERROR: could not find postgres container for project '${{ inputs.project-name }}'" >&2
+          compose ps || true
+          exit 1
+        fi
+        echo "Waiting for Postgres to settle into a stable healthy state..."
+        stable=0
+        for _ in $(seq 1 60); do
+          status=$(docker inspect --format '{{.State.Health.Status}}' "$pg" 2>/dev/null || echo starting)
+          restarts=$(docker inspect --format '{{.RestartCount}}' "$pg" 2>/dev/null || echo 0)
+          echo "  postgres health=$status restarts=$restarts"
+          if [ "$status" = healthy ]; then
+            # Require two consecutive healthy reads so we don't catch it
+            # right before the init restart.
+            stable=$((stable + 1))
+            [ "$stable" -ge 2 ] && break
+          else
+            stable=0
+          fi
+          sleep 5
+        done
+        if [ "$stable" -lt 2 ]; then
+          echo "ERROR: Postgres did not reach a stable healthy state" >&2
+          docker logs "$pg" 2>&1 | tail -n 80 || true
+          exit 1
+        fi
+
+        # Postgres is stable; bring up the rest. Dependents' health
+        # conditions are already satisfied, so there is no startup race.
+        compose up -d
 
     - name: Wait for PanDA server
       shell: bash
