@@ -217,7 +217,7 @@ services:
       - -c
       - |
         source /opt/harvester/bin/activate
-        pip install -q 'docker==7.1.0'
+        python -m pip install -q 'docker==7.1.0'
         mkdir -p /var/log/harvester /var/run/panda /harvester/workers
         python -u $$SITE_PACKAGES_PATH/pandaharvester/harvesterbody/master.py --foreground &
         echo $$! > /var/run/panda/panda_harvester.pid
