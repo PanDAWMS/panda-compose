@@ -222,7 +222,9 @@ services:
         cp /usr/lib64/python3.11/lib-dynload/_sqlite3.cpython-311-x86_64-linux-gnu.so /usr/local/lib/python3.11/lib-dynload/
         python3.11 -m pip install -q 'docker==7.1.0' 'rucio-clients' 'apsw'
         mkdir -p /var/log/harvester /var/run/panda /harvester/workers /var/lib/panda
-        PYTHONPATH=/opt/harvester/lib/python3.11/site-packages:/harvester/plugins:/opt/harvester/lib/python3.11/site-packages/pandacommon:/usr/local/lib/python3.11/site-packages
+        # exec preserves this shell's PID, so record it for the healthcheck
+        # (PYTHONPATH is already supplied via the environment: block below).
+        echo $$$$ > /var/run/panda/panda_harvester.pid
         exec /usr/local/bin/python3.11 -u -m pandaharvester.harvesterbody.master --foreground
     depends_on:
       panda-server:
@@ -234,7 +236,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 30
-      start_period: 30s
+      start_period: 120s
     environment:
       VIRTUAL_ENV: /opt/harvester
       SITE_PACKAGES_PATH: /opt/harvester/lib/python3.11/site-packages
