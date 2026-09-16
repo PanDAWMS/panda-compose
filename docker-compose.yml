@@ -219,7 +219,6 @@ services:
       - -c
       - |
         dnf install -y python3.11 python3.11-libs python3.11-devel sqlite-devel
-        cp /usr/lib64/python3.11/lib-dynload/_sqlite3.cpython-311-x86_64-linux-gnu.so /usr/local/lib/python3.11/lib-dynload/
         python3.11 -m pip install -q 'docker==7.1.0' 'rucio-clients' 'apsw'
         mkdir -p /var/log/harvester /var/run/panda /harvester/workers /var/lib/panda
         # exec preserves this shell's PID, so record it for the healthcheck
