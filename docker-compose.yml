@@ -257,11 +257,12 @@ services:
     volumes:
       - ./config/harvester/panda_harvester.cfg:/etc/panda/panda_harvester.cfg:ro
       - ./config/harvester/panda_common.cfg:/etc/panda/panda_common.cfg:ro
-      - ./config/harvester/panda_queues.cfg:/etc/harvester/panda_queues.cfg:ro
+      - ./config/harvester/panda_queues.cfg:/etc/panda/panda_queues.cfg:ro
       - ./scripts/subprocess_submitter.py:/harvester/plugins/subprocess_submitter.py:ro
       - ./scripts/subprocess_monitor.py:/harvester/plugins/subprocess_monitor.py:ro
       - ./config/harvester/plugins/docker_submitter.py:/harvester/plugins/docker_submitter.py:ro
       - ./config/harvester/plugins/docker_monitor.py:/harvester/plugins/docker_monitor.py:ro
+      - ./config/harvester/plugins/rucio_stager.py:/harvester/plugins/rucio_stager.py:ro
       - ./scripts/panda-worker.sh:/harvester/panda-worker.sh:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - harvester-logs:/var/log/harvester

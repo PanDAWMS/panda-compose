@@ -26,7 +26,7 @@ os.environ.setdefault("PANDA_URL_SSL", os.environ["PANDA_URL"])
 os.environ.setdefault("X509_USER_PROXY", "/dev/null")
 
 try:
-    from pandaclient import Client, JobSpec
+    from pandaclient import Client, FileSpec, JobSpec
 except ImportError as exc:
     print(f"ERROR: panda-client is not installed: {exc}", file=sys.stderr)
     sys.exit(1)
@@ -55,6 +55,12 @@ def parse_args():
     p.add_argument("--cores", type=int, default=1, help="Number of CPU cores")
     p.add_argument("--memory", type=int, default=2000, help="Memory in MB")
     p.add_argument("--walltime", type=int, default=3600, help="Walltime in seconds")
+    p.add_argument("--output", default=None, metavar="LFN_PREFIX",
+                   help="Declare an output file with this LFN prefix so the stager "
+                        "has something to stage out. Required for any stager other "
+                        "than DummyStager to do useful work.")
+    p.add_argument("--output-scope", default="user.hermes",
+                   help="Rucio scope for the declared output file (default: user.hermes)")
     return p.parse_args()
 
 
@@ -99,6 +105,29 @@ def main():
     job.ipConnectivity = "yes"
     # jobDefinitionID has a NOT NULL constraint in the PanDA schema.
     job.jobDefinitionID = 1
+
+    # Declare an output file so the stager has something to stage out.
+    # Without at least one output FileSpec the job still runs to
+    # completion, but stage-out sees an empty file plan and nothing is
+    # ever registered in Rucio.
+    #
+    # The LFN is exactly the --output value so the payload can write a
+    # file of that literal name; an unpredictable suffix would leave the
+    # stager hunting for a file the job never created.
+    if args.output:
+        out = FileSpec.FileSpec()
+        out.lfn = args.output
+        # ATLAS naming convention, which is what the stager and Rucio expect:
+        # the dataset is a dot-separated name whose first two components are
+        # the scope ("user.hermes.<job>.out" → scope "user.hermes"). It must
+        # NOT be "scope:name" — add_dataset() rejects a name containing ':'
+        # with "Provided object does not match schema".
+        out.destinationDBlock = f"{args.output_scope}.{job.jobName}.out"
+        out.destinationSE = args.site
+        out.dataset = out.destinationDBlock
+        out.type = "output"
+        out.scope = args.output_scope
+        job.addFile(out)
 
     status, job_ids = Client.submitJobs([job], verbose=False)
     if status != 0 or not job_ids:

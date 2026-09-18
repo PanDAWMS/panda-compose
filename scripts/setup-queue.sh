@@ -99,8 +99,8 @@ echo "JEDI schema version row inserted."
 # 2000 MB/core can match. Without this, tasks stay resource_type='Undefined'.
 echo "Seeding resource_types..."
 psql -v ON_ERROR_STOP=1 << 'ENDOFSQL'
-INSERT INTO doma_panda.resource_types (resource_name, minrampercore, maxrampercore, maxtime, corecount)
-VALUES ('SCORE', 0, 8192, 86400, 1)
+INSERT INTO doma_panda.resource_types (resource_name, mincore, maxcore, minrampercore, maxrampercore)
+VALUES ('SCORE', 1, 1, 0, 8192)
 ON CONFLICT (resource_name) DO UPDATE
   SET minrampercore = 0, maxrampercore = 8192;
 ENDOFSQL
