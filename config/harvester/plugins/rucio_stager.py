@@ -162,8 +162,13 @@ class RucioStager(BaseStager):
 
         # Build a Rucio client bound to our account (the config's default
         # account is 'root', which lacks the write scope).
+        #
+        # Do not pass ca_cert here: hardcoding a path breaks the HTTP-only
+        # dev stack (the file does not exist) and overrides whatever the
+        # mounted rucio.cfg specifies for a real TLS deployment. Let the
+        # client pick ca_cert up from rucio.cfg / RUCIO_CA_CERT instead.
         try:
-            rucio_client = RucioClient(account=self.rucioAccount, ca_cert="/opt/rucio/etc/ca.crt")
+            rucio_client = RucioClient(account=self.rucioAccount)
         except Exception as exc:
             msg = f"Rucio Client init failed: {exc}"
             tmpLog.error(msg)
