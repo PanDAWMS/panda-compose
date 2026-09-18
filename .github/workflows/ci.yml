@@ -68,8 +68,8 @@ jobs:
             --site PANDA_COMPOSE_LOCAL \
             --container python:3.12-alpine \
             --transformation sh \
-            --output user.hermes.ci.out.txt \
-            --params "-c 'echo hello from python:3.12-alpine > user.hermes.ci.out.txt; python3 --version; uname -a'" \
+            --output user.alice.ci.out.txt \
+            --params "-c 'echo hello from python:3.12-alpine > user.alice.ci.out.txt; python3 --version; uname -a'" \
             --name ci-integration-test)
           echo "Submitted PanDA job ID: $JOB_ID"
 
@@ -155,7 +155,7 @@ jobs:
           docker exec ${PANDA_COMPOSE_PROJECT}-rucio-1 \
             find /tmp/rucio_rse -type f -printf '%s\t%p\n' 2>/dev/null || true
 
-          echo "=== DIDs in user.hermes ==="
+          echo "=== DIDs in user.alice ==="
           TOKEN=$(docker exec ${PANDA_COMPOSE_PROJECT}-rucio-1 curl -s -i \
             -H 'X-Rucio-Account: root' \
             -H 'X-Rucio-Username: ddmlab' \
@@ -165,11 +165,11 @@ jobs:
 
           DIDS=$(docker exec ${PANDA_COMPOSE_PROJECT}-rucio-1 curl -s \
             -H "X-Rucio-Auth-Token: $TOKEN" \
-            'http://localhost/dids/user.hermes/dids/search?type=file')
+            'http://localhost/dids/user.alice/dids/search?type=file')
           echo "$DIDS"
 
           if [[ -z "$DIDS" || "$DIDS" == "[]" ]]; then
-            echo "ERROR: no output DIDs registered in Rucio scope user.hermes"
+            echo "ERROR: no output DIDs registered in Rucio scope user.alice"
             echo "--- stager log ---"
             docker exec ${PANDA_COMPOSE_PROJECT}-harvester-1 \
               tail -n 50 /var/log/harvester/panda-stager.log 2>/dev/null || true

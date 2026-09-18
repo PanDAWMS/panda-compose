@@ -59,8 +59,8 @@ def parse_args():
                    help="Declare an output file with this LFN prefix so the stager "
                         "has something to stage out. Required for any stager other "
                         "than DummyStager to do useful work.")
-    p.add_argument("--output-scope", default="user.hermes",
-                   help="Rucio scope for the declared output file (default: user.hermes)")
+    p.add_argument("--output-scope", default="user.alice",
+                   help="Rucio scope for the declared output file (default: user.alice)")
     return p.parse_args()
 
 
@@ -119,7 +119,7 @@ def main():
         out.lfn = args.output
         # ATLAS naming convention, which is what the stager and Rucio expect:
         # the dataset is a dot-separated name whose first two components are
-        # the scope ("user.hermes.<job>.out" → scope "user.hermes"). It must
+        # the scope ("user.alice.<job>.out" → scope "user.alice"). It must
         # NOT be "scope:name" — add_dataset() rejects a name containing ':'
         # with "Provided object does not match schema".
         out.destinationDBlock = f"{args.output_scope}.{job.jobName}.out"

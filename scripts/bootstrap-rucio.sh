@@ -7,7 +7,7 @@
 # RucioStager to upload job output:
 #
 #   * RSE MOCK-POSIX with a posix 'file' protocol rooted at /tmp/rucio_rse
-#   * scope user.hermes (stager default output scope)
+#   * scope user.alice (stager default output scope)
 #   * scope mock        (input datasets used by integration tests)
 #
 # Idempotent: re-running is a no-op (already-exists responses are accepted).
@@ -21,7 +21,7 @@ RUCIO_USERNAME="${RUCIO_USERNAME:-ddmlab}"
 RUCIO_PASSWORD="${RUCIO_PASSWORD:-secret}"
 RSE_NAME="${RSE_NAME:-MOCK-POSIX}"
 RSE_PREFIX="${RSE_PREFIX:-/tmp/rucio_rse/}"
-SCOPES="${SCOPES:-user.hermes mock}"
+SCOPES="${SCOPES:-user.alice mock}"
 
 in_rucio() { docker exec "$CONTAINER" "$@"; }
 

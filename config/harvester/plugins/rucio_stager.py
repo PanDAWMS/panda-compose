@@ -46,7 +46,7 @@ Queue config example:
         "outputBaseDir": "/tmp/harvester_output",
         "rse": "MOCK-POSIX",
         "rucioAccount": "root",
-        "defaultScope": "user.hermes"
+        "defaultScope": "user.alice"
     }
 
 To opt in, change `stager` in panda_queues.cfg to point here. The shipped
@@ -96,7 +96,7 @@ class RucioStager(BaseStager):
         # only grants replica-write to root (the panda-dev-user is used as the
         # scope owner but has no RSE write permission).
         self.rucioAccount = "root"
-        self.defaultScope = "user.hermes"
+        self.defaultScope = "user.alice"
         BaseStager.__init__(self, **kwarg)
 
     # ------------------------------------------------------------------ helpers
@@ -318,7 +318,7 @@ class RucioStager(BaseStager):
         if out_ext:
             for lfn, meta in out_ext.items():
                 # jobParamsExtForOutput scope may come from JEDI as
-                # "user.hermes:user.hermes.rucioout.NNN_out.txt" (scope:name
+                # "user.alice:user.alice.rucioout.NNN_out.txt" (scope:name
                 # combined). Rucio's actual scope is only the prefix before ":".
                 raw_scope = meta.get("scope") or ""
                 # Parse scope from DID format (scope:name or scope/name) if present

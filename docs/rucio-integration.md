@@ -59,7 +59,7 @@ creates:
 |---|---|
 | RSE | `MOCK-POSIX` |
 | protocol | posix `file://`, prefix `/tmp/rucio_rse/` |
-| scopes | `user.hermes`, `mock` |
+| scopes | `user.alice`, `mock` |
 | quota | `root` on `MOCK-POSIX`, unlimited (`-1`) |
 
 The quota is not optional: without it `UploadClient` completes DID
@@ -91,7 +91,7 @@ TOKEN=$(docker exec panda-compose-rucio-1 curl -s -i \
 
 docker exec panda-compose-rucio-1 curl -s \
   -H "X-Rucio-Auth-Token: $TOKEN" \
-  'http://localhost/dids/user.hermes/dids/search?type=file'
+  'http://localhost/dids/user.alice/dids/search?type=file'
 ```
 
 ## Submitting a job that produces output
@@ -104,13 +104,13 @@ name:
 pandajob-submit --site PANDA_COMPOSE_LOCAL \
   --container python:3.12-alpine \
   --transformation sh \
-  --output user.hermes.demo.out.txt \
-  --params "-c 'echo hello > user.hermes.demo.out.txt'"
+  --output user.alice.demo.out.txt \
+  --params "-c 'echo hello > user.alice.demo.out.txt'"
 ```
 
 The LFN must follow the ATLAS convention `user.<name>.*`, because the
 stager derives the Rucio scope from its first two dot-separated
-components (`user.hermes.demo.out.txt` → scope `user.hermes`). A bare
+components (`user.alice.demo.out.txt` → scope `user.alice`). A bare
 name like `out.txt` makes the stager infer the job name as the scope
 and fail with `ScopeNotFound`.
 
