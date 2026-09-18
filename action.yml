@@ -27,12 +27,6 @@ inputs:
       the stack starts. Use this to override default passwords or other
       variables consumed by the compose file or containers.
     default: ''
-  rucio:
-    description: >
-      Set to 'true' to additionally start a Rucio stack (server + postgres)
-      via docker-compose.rucio.yml and bootstrap the MOCK-POSIX RSE and
-      scopes. Required for queues configured with the RucioStager plugin.
-    default: 'false'
 
 outputs:
   panda-url:
@@ -64,11 +58,9 @@ runs:
       shell: bash
       run: |
         compose() {
-          local files=(-f __panda_compose__/docker-compose.yml)
-          if [[ "${{ inputs.rucio }}" == "true" ]]; then
-            files+=(-f __panda_compose__/docker-compose.rucio.yml)
-          fi
-          docker compose "${files[@]}" -p "${{ inputs.project-name }}" "$@"
+          docker compose \
+            -f __panda_compose__/docker-compose.yml \
+            -p "${{ inputs.project-name }}" "$@"
         }
 
         # Bring up the base services first and let Postgres complete its
@@ -131,7 +123,6 @@ runs:
         fi
 
     - name: Bootstrap Rucio
-      if: inputs.rucio == 'true'
       shell: bash
       run: |
         echo "Waiting for the Rucio server to become healthy..."

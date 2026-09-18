@@ -233,6 +233,8 @@ services:
         condition: service_healthy
       mariadb:
         condition: service_healthy
+      rucio:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "kill -0 $$(cat /var/run/panda/panda_harvester.pid 2>/dev/null) 2>/dev/null"]
       interval: 10s
@@ -252,6 +254,8 @@ services:
       HARVESTER_DB_NAME: ${HARVESTER_DB_NAME:-harvester_db}
       HARVESTER_DB_HOST: mariadb
       HARVESTER_EXPERIMENT: ${HARVESTER_EXPERIMENT:-wlcg}
+      RUCIO_HOME: /opt/rucio
+      RUCIO_CONFIG: /opt/rucio/etc/rucio.cfg
       http_proxy: ${HTTP_PROXY:-}
       https_proxy: ${HTTPS_PROXY:-}
     volumes:
@@ -264,9 +268,91 @@ services:
       - ./config/harvester/plugins/docker_monitor.py:/harvester/plugins/docker_monitor.py:ro
       - ./config/harvester/plugins/rucio_stager.py:/harvester/plugins/rucio_stager.py:ro
       - ./scripts/panda-worker.sh:/harvester/panda-worker.sh:ro
+      - ./config/rucio/rucio-ci.cfg:/opt/rucio/etc/rucio.cfg:ro
+      - rucio-rse-data:/tmp/rucio_rse
+      # Must be a host bind, not a named volume. DockerSubmitter asks the
+      # host daemon to bind-mount <outputBaseDir>/worker-N into each worker,
+      # and the daemon resolves that path on the HOST. With a named volume
+      # the worker writes to the host path while harvester reads the volume,
+      # so the stager sees an empty directory and every job fails to stage.
+      - /tmp/harvester_output:/tmp/harvester_output
       - /var/run/docker.sock:/var/run/docker.sock
       - harvester-logs:/var/log/harvester
       - harvester-workdir:/harvester
+
+  # ────────────────────────────────────────────────────────────────
+  # Rucio — data management. Provides the MOCK-POSIX RSE that the
+  # Harvester RucioStager plugin uploads job output to.
+  #
+  # Runs HTTP-only (RUCIO_ENABLE_SSL=False), so no CA or host
+  # certificates are needed. scripts/bootstrap-rucio.sh creates the
+  # RSE, its posix protocol, the scopes and the account quota once the
+  # server is healthy — rucio-init only creates the schema and the
+  # 'root' account.
+  # ────────────────────────────────────────────────────────────────
+  ruciodb:
+    image: docker.io/postgres:14
+    environment:
+      POSTGRES_USER: ${RUCIO_DB_USER:-rucio}
+      POSTGRES_DB: ${RUCIO_DB_NAME:-rucio}
+      POSTGRES_PASSWORD: ${RUCIO_DB_PASSWORD:-secret}
+    command: ["-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${RUCIO_DB_USER:-rucio} -d ${RUCIO_DB_NAME:-rucio} || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  rucio-init:
+    image: docker.io/rucio/rucio-init:${RUCIO_TAG:-latest}
+    depends_on:
+      ruciodb:
+        condition: service_healthy
+    environment:
+      # The image ships psycopg3, not psycopg2, so the driver must be
+      # named explicitly or SQLAlchemy fails with ModuleNotFoundError.
+      RUCIO_CFG_DATABASE_DEFAULT: postgresql+psycopg://${RUCIO_DB_USER:-rucio}:${RUCIO_DB_PASSWORD:-secret}@ruciodb/${RUCIO_DB_NAME:-rucio}
+      RUCIO_CFG_BOOTSTRAP_USERPASS_IDENTITY: ${RUCIO_USERNAME:-ddmlab}
+      RUCIO_CFG_BOOTSTRAP_USERPASS_PWD: ${RUCIO_PASSWORD:-secret}
+    # The upstream entrypoint runs `alembic init`, which aborts once the
+    # migrate_repo directory exists. That makes a second run fail and, via
+    # service_completed_successfully, block every warm `docker compose up`.
+    # Skip when the schema is already present so re-ups are no-ops.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        if python3 -c "
+        import sys, sqlalchemy
+        url = '$${RUCIO_CFG_DATABASE_DEFAULT}'
+        insp = sqlalchemy.inspect(sqlalchemy.create_engine(url))
+        sys.exit(0 if insp.has_table('accounts') else 1)
+        " 2>/dev/null; then
+          echo "Rucio schema already present; skipping init."
+          exit 0
+        fi
+        exec /docker-entrypoint.sh
+
+  rucio:
+    image: docker.io/rucio/rucio-server:${RUCIO_TAG:-latest}
+    depends_on:
+      rucio-init:
+        condition: service_completed_successfully
+    environment:
+      RUCIO_ENABLE_SSL: "False"
+      RUCIO_CFG_DATABASE_DEFAULT: postgresql+psycopg://${RUCIO_DB_USER:-rucio}:${RUCIO_DB_PASSWORD:-secret}@ruciodb/${RUCIO_DB_NAME:-rucio}
+      # 'ping' is not in the default endpoint list, and the healthcheck
+      # below uses it.
+      RUCIO_CFG_API_ENDPOINTS: accounts,dids,rses,scopes,replicas,auth,config,credentials,identities,meta_conventions,rules,subscriptions,ping
+    volumes:
+      - rucio-rse-data:/tmp/rucio_rse
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
 
 volumes:
   panda-db-data:
@@ -276,3 +362,4 @@ volumes:
   harvester-db-data:
   harvester-logs:
   harvester-workdir:
+  rucio-rse-data:

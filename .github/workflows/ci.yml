@@ -19,7 +19,6 @@ jobs:
         with:
           ref: ${{ github.sha }}
           timeout: '300'
-          rucio: 'true'
 
       - name: Verify Harvester is running
         run: |
