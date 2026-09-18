@@ -46,7 +46,7 @@ Queue config example:
         "outputBaseDir": "/tmp/harvester_output",
         "rse": "MOCK-POSIX",
         "rucioAccount": "root",
-        "defaultScope": "user.hermes"
+        "defaultScope": "user.alice"
     }
 
 To opt in, change `stager` in panda_queues.cfg to point here. The shipped
@@ -96,7 +96,7 @@ class RucioStager(BaseStager):
         # only grants replica-write to root (the panda-dev-user is used as the
         # scope owner but has no RSE write permission).
         self.rucioAccount = "root"
-        self.defaultScope = "user.hermes"
+        self.defaultScope = "user.alice"
         BaseStager.__init__(self, **kwarg)
 
     # ------------------------------------------------------------------ helpers
@@ -162,6 +162,11 @@ class RucioStager(BaseStager):
 
         # Build a Rucio client bound to our account (the config's default
         # account is 'root', which lacks the write scope).
+        #
+        # Do not pass ca_cert here: hardcoding a path breaks the HTTP-only
+        # dev stack (the file does not exist) and overrides whatever the
+        # mounted rucio.cfg specifies for a real TLS deployment. Let the
+        # client pick ca_cert up from rucio.cfg / RUCIO_CA_CERT instead.
         try:
             rucio_client = RucioClient(account=self.rucioAccount)
         except Exception as exc:
@@ -313,11 +318,19 @@ class RucioStager(BaseStager):
         if out_ext:
             for lfn, meta in out_ext.items():
                 # jobParamsExtForOutput scope may come from JEDI as
-                # "user.hermes/user.hermes.rucioout.NNN_out.txt" (scope/dataset
-                # combined). Rucio's actual scope is only the prefix before "/".
+                # "user.alice:user.alice.rucioout.NNN_out.txt" (scope:name
+                # combined). Rucio's actual scope is only the prefix before ":".
                 raw_scope = meta.get("scope") or ""
-                scope = raw_scope.split("/", 1)[0] if raw_scope else self._split_scope(lfn)[0]
-                if not scope:
+                # Parse scope from DID format (scope:name or scope/name) if present
+                if ":" in raw_scope:
+                    scope = raw_scope.split(":", 1)[0]
+                elif "/" in raw_scope:
+                    scope = raw_scope.split("/", 1)[0]
+                elif raw_scope and raw_scope != "NULL":
+                    scope = raw_scope
+                else:
+                    scope = self._split_scope(lfn)[0]
+                if not scope or scope == "NULL":
                     scope = self._split_scope(lfn)[0]
                 dataset = meta.get("dataset")
                 if dataset in (None, "", "NULL"):
@@ -342,6 +355,8 @@ class RucioStager(BaseStager):
                 if ds == "NULL":
                     ds = None
                 scope, _ = self._split_scope(lfn)
+                if not scope or scope == "NULL":
+                    scope = self.defaultScope
                 ftype = "log" if lfn == logFile or lfn.endswith(".log.tgz") else "output"
                 plan.append({"lfn": lfn, "type": ftype, "scope": scope, "dataset": ds})
 

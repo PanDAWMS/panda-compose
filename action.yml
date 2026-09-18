@@ -71,7 +71,7 @@ runs:
         # dependents via depends_on: service_healthy at the same time races
         # this and intermittently aborts with
         # 'dependency failed to start: container ...-postgres-1 is unhealthy'.
-        compose up -d postgres activemq mariadb
+        compose up -d postgres activemq
 
         pg="$(compose ps -q postgres)"
         if [ -z "$pg" ]; then
@@ -121,6 +121,24 @@ runs:
           echo "::endgroup::"
           exit 1
         fi
+
+    - name: Bootstrap Rucio
+      shell: bash
+      run: |
+        echo "Waiting for the Rucio server to become healthy..."
+        rucio_container="${{ inputs.project-name }}-rucio-1"
+        for _ in $(seq 1 60); do
+          status=$(docker inspect --format '{{.State.Health.Status}}' "$rucio_container" 2>/dev/null || echo starting)
+          echo "  rucio health=$status"
+          [ "$status" = healthy ] && break
+          sleep 5
+        done
+        if [ "$status" != healthy ]; then
+          echo "ERROR: Rucio did not become healthy" >&2
+          docker logs "$rucio_container" 2>&1 | tail -n 80 || true
+          exit 1
+        fi
+        __panda_compose__/scripts/bootstrap-rucio.sh "$rucio_container"
 
     - name: Export environment variables
       shell: bash

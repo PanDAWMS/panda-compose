@@ -106,7 +106,7 @@ Override defaults by writing a custom `.env` before `docker compose up -d`:
         run: |
           cat > .env <<'EOF'
           PANDA_DB_PASSWORD=my_secret
-          HARVESTER_DB_PASSWORD=my_other_secret
+          RUCIO_DB_PASSWORD=my_other_secret
           EOF
           docker compose up -d
 ```

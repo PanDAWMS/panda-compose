@@ -68,7 +68,8 @@ jobs:
             --site PANDA_COMPOSE_LOCAL \
             --container python:3.12-alpine \
             --transformation sh \
-            --params "-c 'echo hello from python:3.12-alpine; python3 --version; uname -a'" \
+            --output user.alice.ci.out.txt \
+            --params "-c 'echo hello from python:3.12-alpine > user.alice.ci.out.txt; python3 --version; uname -a'" \
             --name ci-integration-test)
           echo "Submitted PanDA job ID: $JOB_ID"
 
@@ -113,10 +114,16 @@ jobs:
               docker exec ${PANDA_COMPOSE_PROJECT}-harvester-1 \
                 tail -n 15 /var/log/harvester/panda-docker_submitter.log 2>/dev/null || true
               echo "--- [diag] harvester work_table ---"
-              docker exec ${PANDA_COMPOSE_PROJECT}-mariadb-1 \
-                mysql -uharvester -pharvester_secret harvester_db \
-                -e "SELECT workerID, status, nativeStatus, LEFT(batchID,12) AS batchID FROM work_table ORDER BY workerID DESC LIMIT 10;" \
+              docker exec ${PANDA_COMPOSE_PROJECT}-harvester-1 \
+                python3 -c "import sqlite3;print([r for r in sqlite3.connect('/var/lib/panda/harvester.db').execute('SELECT workerID,status,nativeStatus,substr(batchID,1,12) FROM work_table ORDER BY workerID DESC LIMIT 10')])" \
                 2>/dev/null || true
+              echo "--- [diag] harvester pq_table (queues loaded) ---"
+              docker exec ${PANDA_COMPOSE_PROJECT}-harvester-1 \
+                python3 -c "import sqlite3;print([r for r in sqlite3.connect('/var/lib/panda/harvester.db').execute('SELECT queueName FROM pq_table')])" \
+                2>/dev/null || true
+              echo "--- [diag] harvester queue_config_mapper errors ---"
+              docker exec ${PANDA_COMPOSE_PROJECT}-harvester-1 \
+                grep -E 'ERROR|WARNING' /var/log/harvester/panda-queue_config_mapper.log 2>/dev/null | tail -5 || true
               echo "---"
             fi
 
@@ -141,6 +148,34 @@ jobs:
             echo "ERROR: job did not reach 'finished' within 20 minutes (last status: $JOB_STATUS)"
             exit 1
           fi
+
+      - name: Verify job output landed in Rucio
+        run: |
+          echo "=== RSE contents ==="
+          docker exec ${PANDA_COMPOSE_PROJECT}-rucio-1 \
+            find /tmp/rucio_rse -type f -printf '%s\t%p\n' 2>/dev/null || true
+
+          echo "=== DIDs in user.alice ==="
+          TOKEN=$(docker exec ${PANDA_COMPOSE_PROJECT}-rucio-1 curl -s -i \
+            -H 'X-Rucio-Account: root' \
+            -H 'X-Rucio-Username: ddmlab' \
+            -H 'X-Rucio-Password: secret' \
+            http://localhost/auth/userpass \
+            | grep -i '^x-rucio-auth-token:' | tr -d '\r' | awk '{print $2}')
+
+          DIDS=$(docker exec ${PANDA_COMPOSE_PROJECT}-rucio-1 curl -s \
+            -H "X-Rucio-Auth-Token: $TOKEN" \
+            'http://localhost/dids/user.alice/dids/search?type=file')
+          echo "$DIDS"
+
+          if [[ -z "$DIDS" || "$DIDS" == "[]" ]]; then
+            echo "ERROR: no output DIDs registered in Rucio scope user.alice"
+            echo "--- stager log ---"
+            docker exec ${PANDA_COMPOSE_PROJECT}-harvester-1 \
+              tail -n 50 /var/log/harvester/panda-stager.log 2>/dev/null || true
+            exit 1
+          fi
+          echo "OK: job output is registered in Rucio"
 
       - name: Dump all service logs
         if: always()
