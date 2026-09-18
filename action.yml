@@ -71,7 +71,7 @@ runs:
         # dependents via depends_on: service_healthy at the same time races
         # this and intermittently aborts with
         # 'dependency failed to start: container ...-postgres-1 is unhealthy'.
-        compose up -d postgres activemq mariadb
+        compose up -d postgres activemq
 
         pg="$(compose ps -q postgres)"
         if [ -z "$pg" ]; then

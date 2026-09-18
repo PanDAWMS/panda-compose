@@ -17,10 +17,12 @@ This repository mirrors the component set of
 | `activemq` | `ghcr.io/pandawms/panda-activemq:latest` | Message broker (STOMP/OpenWire) |
 | `panda-server` | `ghcr.io/pandawms/panda-server:latest` | PanDA REST API + Apache httpd |
 | `panda-jedi` | `ghcr.io/pandawms/panda-jedi:latest` | JEDI workload management daemon |
-| `mariadb` | `mariadb:10.11` | Harvester database |
 | `harvester` | `ghcr.io/hsf/harvester:latest` | Resource-facing pilot submission service |
+| `ruciodb` | `postgres:14` | Rucio database |
+| `rucio-init` | `rucio/rucio-init:latest` | One-shot Rucio schema + account bootstrap |
+| `rucio` | `rucio/rucio-server:latest` | Rucio server (HTTP) |
 
-Startup order: `postgres` + `activemq` + `mariadb` → `panda-server` → `init` (one-shot) → `panda-jedi` + `harvester`
+Startup order: `postgres` + `activemq` + `ruciodb` → `panda-server` + `rucio` → `init` (one-shot) → `panda-jedi` + `harvester`
 
 ## Quick start
 

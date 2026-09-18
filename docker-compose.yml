@@ -1,7 +1,7 @@
 # PanDA Compose — self-contained PanDA stack for development and CI
 #
 # Component dependency order:
-#   postgres + activemq + mariadb  →  panda-server + panda-jedi  →  harvester
+#   postgres + activemq  →  panda-server + panda-jedi  →  harvester
 #
 # Usage:
 #   cp .env.example .env    # fill in secrets
@@ -165,25 +165,6 @@ services:
       start_period: 60s
 
   # ────────────────────────────────────────────────────────────────
-  # MariaDB — Harvester database
-  # ────────────────────────────────────────────────────────────────
-  mariadb:
-    image: mariadb:10.11
-    restart: unless-stopped
-    environment:
-      MARIADB_USER: ${HARVESTER_DB_USER:-harvester}
-      MARIADB_PASSWORD: ${HARVESTER_DB_PASSWORD:-harvester_secret}
-      MARIADB_DATABASE: ${HARVESTER_DB_NAME:-harvester_db}
-      MARIADB_ROOT_PASSWORD: ${HARVESTER_DB_PASSWORD:-harvester_secret}
-    volumes:
-      - harvester-db-data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -u${HARVESTER_DB_USER:-harvester} -p${HARVESTER_DB_PASSWORD:-harvester_secret} --silent"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  # ────────────────────────────────────────────────────────────────
   # Init — one-shot service that registers PANDA_COMPOSE_LOCAL in
   # the PanDA server schedconfig so JEDI can route jobs to it.
   # ────────────────────────────────────────────────────────────────
@@ -231,8 +212,6 @@ services:
     depends_on:
       panda-server:
         condition: service_healthy
-      mariadb:
-        condition: service_healthy
       rucio:
         condition: service_healthy
     healthcheck:
@@ -249,10 +228,6 @@ services:
       PANDA_URL_SSL: ${PANDA_URL_SSL:-http://panda-server:80/server/panda}
       PANDA_AUTH: "None"
       PANDA_VERIFY_HOST: "off"
-      HARVESTER_DB_USER: ${HARVESTER_DB_USER:-harvester}
-      HARVESTER_DB_PASSWORD: ${HARVESTER_DB_PASSWORD:-harvester_secret}
-      HARVESTER_DB_NAME: ${HARVESTER_DB_NAME:-harvester_db}
-      HARVESTER_DB_HOST: mariadb
       HARVESTER_EXPERIMENT: ${HARVESTER_EXPERIMENT:-wlcg}
       RUCIO_HOME: /opt/rucio
       RUCIO_CONFIG: /opt/rucio/etc/rucio.cfg
@@ -359,7 +334,6 @@ volumes:
   panda-server-logs:
   panda-cache:
   activemq-data:
-  harvester-db-data:
   harvester-logs:
   harvester-workdir:
   rucio-rse-data:

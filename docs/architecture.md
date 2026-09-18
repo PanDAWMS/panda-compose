@@ -20,7 +20,8 @@ graph TD
     subgraph compose["Docker Compose network"]
         postgres[(postgres\nPanDA schema)]
         activemq[activemq\nSTOMP / OpenWire]
-        mariadb[(mariadb\nHarvester DB)]
+        ruciodb[(ruciodb\nRucio schema)]
+        rucio[rucio\nRucio server]
         init[/init\none-shot/]
         server[panda-server\nREST API / httpd]
         jedi[panda-jedi\nworkload manager]
@@ -34,9 +35,11 @@ graph TD
     init     -->|completed| jedi
     server   -->|healthy| jedi
     server   -->|healthy| harvester
-    mariadb  -->|healthy| harvester
+    ruciodb  -->|healthy| rucio
+    rucio    -->|healthy| harvester
 
     harvester <-->|REST API| server
+    harvester -->|upload output| rucio
     client    -->|"http://localhost:25080"| server
 ```
 
@@ -47,11 +50,12 @@ graph LR
     subgraph p1["Phase 1 — infrastructure"]
         postgres[(postgres)]
         activemq[activemq]
-        mariadb[(mariadb)]
+        ruciodb[(ruciodb)]
     end
     subgraph p2["Phase 2 — server & init"]
         server[panda-server]
         init[/init/]
+        rucio[rucio]
     end
     subgraph p3["Phase 3 — workers"]
         jedi[panda-jedi]
@@ -65,7 +69,8 @@ graph LR
     init      -->|"completed ✓"| jedi
     server    -->|healthy| jedi
     server    -->|healthy| harvester
-    mariadb   -->|healthy| harvester
+    ruciodb   -->|healthy| rucio
+    rucio     -->|healthy| harvester
 ```
 
 ## Component descriptions
@@ -118,11 +123,18 @@ JEDI depends on the `init` service completing successfully to ensure the
 `PANDA_COMPOSE_LOCAL` queue is registered and the `pandadb_version` JEDI row exists
 before it starts reading schedconfig.
 
-### mariadb — Harvester database
+### rucio — data management
 
-Uses `mariadb:10.11` (standard LTS image). Harvester stores its internal state
-(worker records, job mappings, statistics) in MariaDB. The schema is created
-automatically by Harvester on first startup via its `make_tables` migration.
+`ruciodb` (postgres:14) backs the Rucio schema, `rucio-init` creates it along
+with the `root` account, and `rucio` serves the REST API over plain HTTP
+(`RUCIO_ENABLE_SSL=False`, so no certificates are involved).
+
+`rucio-init` does not create an RSE, so `scripts/bootstrap-rucio.sh` adds the
+`MOCK-POSIX` RSE, its posix protocol, the scopes and the account quota. The
+Harvester `RucioStager` plugin uploads each job's output there.
+
+Harvester itself keeps its internal state (worker records, job mappings,
+statistics) in a local sqlite file at `/var/lib/panda/harvester.db`.
 
 ### init — queue registration (one-shot)
 

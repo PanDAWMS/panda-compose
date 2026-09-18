@@ -117,7 +117,7 @@ Use `env-overrides` to change passwords or other settings without modifying `.en
   with:
     env-overrides: |
       PANDA_DB_PASSWORD=my_custom_secret
-      HARVESTER_DB_PASSWORD=my_harvester_secret
+      RUCIO_DB_PASSWORD=my_rucio_secret
 ```
 
 ## Pinning to a specific version
