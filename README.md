@@ -15,10 +15,10 @@ This repository mirrors the component set of
 | `postgres` | `ghcr.io/pandawms/panda-database:latest` | PanDA + JEDI database (postgres with pre-installed schema) |
 | `activemq` | `ghcr.io/pandawms/panda-activemq:latest` | Message broker (STOMP/OpenWire) |
 | `panda-server` | `ghcr.io/pandawms/panda-server:latest` | PanDA REST API + Apache httpd |
-| `mariadb` | `bitnami/mariadb:latest` | Harvester database |
 | `harvester` | `ghcr.io/hsf/harvester:latest` | Resource-facing pilot submission service |
+| `rucio` | `rucio/rucio-server:latest` | Rucio server (HTTP), with `ruciodb` + `rucio-init` |
 
-Service startup order: `postgres` + `activemq` + `mariadb` → `panda-server` → `harvester`
+Service startup order: `postgres` + `activemq` + `ruciodb` → `panda-server` + `rucio` → `harvester`
 
 ## Quick start
 
@@ -57,7 +57,6 @@ Copy `.env.example` to `.env` and adjust the values. The most important variable
 | `PANDA_DB_PASSWORD` | `panda_secret` | PostgreSQL password for PanDA |
 | `PANDA_ACTIVEMQ_PASSWD_panda` | `panda_mq_secret` | ActiveMQ password for PanDA |
 | `PANDA_AUTH` | `None` | Authentication type (`None` = no-auth dev mode, `oidc` for token auth) |
-| `HARVESTER_DB_PASSWORD` | `harvester_secret` | MariaDB password for Harvester |
 
 ### Config files
 

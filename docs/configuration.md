@@ -18,9 +18,9 @@ in `docker-compose.yml` so the stack starts even without a `.env` file.
 | `POSTGRES_PASSWORD` | `postgres_secret` | PostgreSQL superuser password |
 | `PANDA_DB_PASSWORD` | `panda_secret` | PostgreSQL password for the `panda` role |
 | `PANDA_DB_NAME` | `panda_db` | PostgreSQL database name |
-| `HARVESTER_DB_USER` | `harvester` | MariaDB username for Harvester |
-| `HARVESTER_DB_PASSWORD` | `harvester_secret` | MariaDB password for Harvester |
-| `HARVESTER_DB_NAME` | `harvester_db` | MariaDB database name |
+| `RUCIO_DB_USER` | `rucio` | PostgreSQL username for Rucio |
+| `RUCIO_DB_PASSWORD` | `secret` | PostgreSQL password for Rucio |
+| `RUCIO_DB_NAME` | `rucio` | Rucio database name |
 
 ### Messaging
 
