@@ -68,7 +68,7 @@ Static configuration is mounted read-only into the containers:
 | `config/panda/panda_server.cfg` | `/etc/panda/panda_server.cfg` | PanDA server |
 | `config/panda/panda_jedi.cfg` | `/etc/panda/panda_jedi.cfg` | JEDI daemon |
 | `config/harvester/panda_harvester.cfg` | `/etc/harvester/panda_harvester.cfg` | Harvester main config |
-| `config/harvester/panda_queues.cfg` | `/etc/harvester/panda_queues.cfg` | Compute queue definitions |
+| `config/harvester/panda_queues.template.json` | `/etc/panda/panda_queues.template.json` | Queue template; concrete queues rendered from `PANDA_QUEUES` |
 
 The default queue `PANDA_COMPOSE_LOCAL` uses Harvester's `DockerSubmitter` — jobs run
 as Docker containers on the host Docker daemon. The default container image is

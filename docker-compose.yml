@@ -187,6 +187,7 @@ services:
       PGDATABASE: ${PANDA_DB_NAME:-panda_db}
       PANDA_DB_USER: panda
       PANDA_DB_PASSWORD: ${PANDA_DB_PASSWORD:-panda_secret}
+      PANDA_QUEUES: ${PANDA_QUEUES:-PANDA_COMPOSE_LOCAL}
 
   # ────────────────────────────────────────────────────────────────
   # Harvester — resource-facing pilot submission service.
@@ -205,6 +206,9 @@ services:
         cp /usr/lib64/python3.11/lib-dynload/_sqlite3.cpython-311-x86_64-linux-gnu.so /usr/local/lib/python3.11/lib-dynload/
         python3.11 -m pip install -q 'docker==7.1.0' 'rucio-clients' 'apsw'
         mkdir -p /var/log/harvester /var/run/panda /harvester/workers /var/lib/panda
+        # Render panda_queues.cfg from the template + PANDA_QUEUES list so the
+        # harvester manages exactly the queues registered in schedconfig.
+        python3.11 /harvester/render-panda-queues.py
         # exec preserves this shell's PID, so record it for the healthcheck
         # (PYTHONPATH is already supplied via the environment: block below).
         echo $$$$ > /var/run/panda/panda_harvester.pid
@@ -229,6 +233,7 @@ services:
       PANDA_AUTH: "None"
       PANDA_VERIFY_HOST: "off"
       HARVESTER_EXPERIMENT: ${HARVESTER_EXPERIMENT:-wlcg}
+      PANDA_QUEUES: ${PANDA_QUEUES:-PANDA_COMPOSE_LOCAL}
       RUCIO_HOME: /opt/rucio
       RUCIO_CONFIG: /opt/rucio/etc/rucio.cfg
       http_proxy: ${HTTP_PROXY:-}
@@ -236,7 +241,8 @@ services:
     volumes:
       - ./config/harvester/panda_harvester.cfg:/etc/panda/panda_harvester.cfg:ro
       - ./config/harvester/panda_common.cfg:/etc/panda/panda_common.cfg:ro
-      - ./config/harvester/panda_queues.cfg:/etc/panda/panda_queues.cfg:ro
+      - ./config/harvester/panda_queues.template.json:/etc/panda/panda_queues.template.json:ro
+      - ./scripts/render-panda-queues.py:/harvester/render-panda-queues.py:ro
       - ./scripts/subprocess_submitter.py:/harvester/plugins/subprocess_submitter.py:ro
       - ./scripts/subprocess_monitor.py:/harvester/plugins/subprocess_monitor.py:ro
       - ./config/harvester/plugins/docker_submitter.py:/harvester/plugins/docker_submitter.py:ro
