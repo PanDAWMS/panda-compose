@@ -93,6 +93,12 @@ services:
               $${PANDA_LOCK_DIR:-/var/run/panda}/panda_daemon.pid \
               $${PANDA_LOCK_DIR:-/var/run/panda}/panda_daemon.pid.lock
         /data/panda/run-panda-services
+        # Run the panda-server crons (datasetManager, adder, ...). datasetManager
+        # is what activates JEDI-generated jobs (jobsdefined4 'defined' ->
+        # jobsactive4 'activated') once their input files are ready; without it
+        # jobs sit in 'defined' forever and the harvester never fetches them.
+        # (The script was already chmod'd above but never executed.)
+        /data/panda/run-panda-crons &
         # Start JEDI in background (same container, same pandaserver package)
         /data/panda/init-jedi
         /data/panda/run-jedi-crons &
