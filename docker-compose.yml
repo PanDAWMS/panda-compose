@@ -151,6 +151,10 @@ services:
       PANDA_RUCIO_ACCOUNT: ${PANDA_RUCIO_ACCOUNT:-root}
       # Required for LiveConfigParser ${PANDA_HOME} expansion in panda_jedi.cfg
       PANDA_HOME: /opt/panda
+      # JEDI's DDM client (rucio-clients) needs a client config to reach Rucio;
+      # without it, task refine fails with rucio ConfigNotFound on listDatasets.
+      RUCIO_HOME: /opt/rucio
+      RUCIO_CONFIG: /opt/rucio/etc/rucio.cfg
     volumes:
       - ./config/panda/panda_common.cfg:/etc/panda/panda_common.cfg:ro
       - ./config/panda/panda_server.cfg:/etc/panda/panda_server.cfg:ro
@@ -158,6 +162,7 @@ services:
       - ./config/panda/cric:/etc/panda/cric:ro
       - ./config/panda/sandbox:/opt/panda/sandbox:ro
       - ./config/jedi/sandbox:/opt/panda/sandbox-jedi:ro
+      - ./config/rucio/rucio-ci.cfg:/opt/rucio/etc/rucio.cfg:ro
       - panda-server-logs:/var/log/panda
       - panda-cache:/var/cache/pandaserver
     ports:
