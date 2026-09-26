@@ -40,6 +40,23 @@ in `docker-compose.yml` so the stack starts even without a `.env` file.
 | `PANDA_SERVER_CONF_MAX_WORKERS` | `4` | Apache prefork maximum workers |
 | `PANDA_SERVER_CONF_SERVERNAME` | `localhost` | Apache `ServerName` |
 
+### JEDI task submission
+
+These apply only to the JEDI *task* path (`prun` / `panda_api.submit_task`).
+Direct job submission (`scripts/pandajob-submit`) bypasses JEDI and ignores them.
+
+| Variable | Default | Description |
+|---|---|---|
+| `PANDA_TASK_VO` | `epic` | VO that JEDI tasks are submitted under. Must match `[taskrefine] procConfig` in `panda_jedi.cfg`; selects the seeded work-queue / global-share |
+| `PANDA_TASK_LABEL` | `test` | `prodSourceLabel` of JEDI tasks; also the seeded work-queue `queue_type` |
+| `JEDI_AUX_REFRESH_INTERVAL` | `15` | Seconds between `jedi-aux-refresh` calls to `jedi_refr_mintaskids_bystatus()` |
+
+`setup-queue.sh` seeds a `jedi_work_queue` row (`queue_function='Resource'`) and
+a `global_shares` row for `PANDA_TASK_VO`/`PANDA_TASK_LABEL`; without both, the
+TaskRefiner fails with `workqueue is undefined` and the task never leaves
+`waiting`. The `jedi-aux-refresh` sidecar keeps `JEDI_AUX_Status_MinTaskID`
+current so tasks don't stall between status transitions (see architecture.md).
+
 ### Proxies
 
 If you are behind a corporate proxy, set `HTTP_PROXY` and `HTTPS_PROXY` in `.env`.
