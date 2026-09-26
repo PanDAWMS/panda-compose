@@ -209,41 +209,6 @@ services:
       PANDA_TASK_LABEL: ${PANDA_TASK_LABEL:-test}
 
   # ────────────────────────────────────────────────────────────────
-  # jedi-aux-refresh — keep JEDI's status aggregation table current.
-  #
-  # Every JEDI stage (ContentsFeeder, JobGenerator, ...) JOINs against
-  # doma_panda.JEDI_AUX_Status_MinTaskID, which is maintained ONLY by the
-  # stored procedure jedi_refr_mintaskids_bystatus(). Nothing in the PanDA
-  # containers schedules it (upstream relies on pg_cron, which the dev DB image
-  # does not run), so it goes stale on every task status transition
-  # (defined->ready->running->...). When stale, the JOIN returns nothing and the
-  # task silently stalls with no error logged anywhere. This sidecar calls the
-  # procedure on a short loop so JEDI tasks progress end to end.
-  jedi-aux-refresh:
-    image: postgres:15
-    restart: unless-stopped
-    depends_on:
-      init:
-        condition: service_completed_successfully
-    environment:
-      PGHOST: postgres
-      PGPORT: "5432"
-      PGUSER: panda
-      PGPASSWORD: ${PANDA_DB_PASSWORD:-panda_secret}
-      PGDATABASE: ${PANDA_DB_NAME:-panda_db}
-      JEDI_AUX_REFRESH_INTERVAL: ${JEDI_AUX_REFRESH_INTERVAL:-15}
-    command:
-      - /bin/bash
-      - -c
-      - |
-        echo "jedi-aux-refresh: calling jedi_refr_mintaskids_bystatus() every ${JEDI_AUX_REFRESH_INTERVAL:-15}s"
-        while true; do
-          psql -v ON_ERROR_STOP=0 -tAqc "CALL doma_panda.jedi_refr_mintaskids_bystatus();" \
-            || echo "jedi-aux-refresh: refresh failed (will retry)"
-          sleep "${JEDI_AUX_REFRESH_INTERVAL:-15}"
-        done
-
-  # ────────────────────────────────────────────────────────────────
   # Harvester — resource-facing pilot submission service.
   # Runs subprocess_submitter / subprocess_monitor plugins (mounted
   # from ./scripts/) so jobs execute as local subprocesses with no

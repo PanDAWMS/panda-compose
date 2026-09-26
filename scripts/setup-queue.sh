@@ -146,6 +146,17 @@ ON CONFLICT DO NOTHING;
 ENDOFSQL
 echo "JEDI work queue and global share seeded."
 
+# Step 1e: schedule PanDA's pg_cron maintenance jobs. The image preloads pg_cron
+# (in the 'postgres' database) and panda_db_init.sh tries to apply
+# post_step_cron.sql, but that file is not shipped in the image, so no jobs get
+# scheduled and JEDI aggregation tables go stale, stalling the task->job pipeline.
+# setup-cron.sql is applied against 'postgres' (where the extension lives) and
+# uses cron.schedule_in_database to run each command in 'panda_db'.
+echo "Scheduling pg_cron maintenance jobs..."
+command psql -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" -d postgres -v ON_ERROR_STOP=1 \
+  -f "$(dirname "$0")/setup-cron.sql"
+echo "pg_cron maintenance jobs scheduled."
+
 # Step 2: register the configured compute queues using the panda user credentials.
 export PGPASSWORD="${PANDA_DB_PASSWORD:-panda_secret}"
 export PGUSER="${PANDA_DB_USER}"
