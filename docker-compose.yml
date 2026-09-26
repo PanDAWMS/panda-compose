@@ -103,6 +103,12 @@ services:
         condition: service_healthy
       activemq:
         condition: service_healthy
+      # JEDI runs inside this container and caches the work-queue / global-share
+      # map at startup. Wait for init to finish seeding those rows (plus
+      # pandadb_version and the atlas_panda views) first, otherwise JEDI caches an
+      # empty map and every task refine fails with "workqueue is undefined".
+      init:
+        condition: service_completed_successfully
     environment:
       # Database
       PANDA_DB_BACKEND: ${PANDA_DB_BACKEND:-postgres}
