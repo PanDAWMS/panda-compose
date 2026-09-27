@@ -87,6 +87,11 @@ services:
         /opt/panda/bin/python /data/panda/process_template.py
         # Also process the httpd config directly since it's not a .template file
         /opt/panda/bin/python -c "import os, re; content=open('/opt/panda/sandbox/panda_server-httpd.conf').read(); [content.__setitem__('dummy', content.replace('$${'+k+'}',v)) or None for k,v in os.environ.items() if k.startswith('PANDA_SERVER_CONF_')]; open('/opt/panda/etc/panda/panda_server-httpd.conf','w').write(content)"
+        # Render the CRIC dumps for every configured queue (PANDA_QUEUES) before
+        # the configurator cron reads them, so extra local queues (E1_BNL, ...)
+        # get full site + DDM-endpoint definitions. Without this the configurator
+        # reports "SITE not found in CRIC" and JEDI jobs never leave 'defined'.
+        /opt/panda/bin/python /opt/panda/render-cric.py
         # Remove stale lock files left by a previous container run (the writable
         # layer is reused across restarts so these files persist).
         rm -f $${PANDA_LOCK_DIR:-/var/run/panda}/panda_daemon.lock \
@@ -157,6 +162,9 @@ services:
       PANDA_RUCIO_ACCOUNT: ${PANDA_RUCIO_ACCOUNT:-root}
       # Required for LiveConfigParser ${PANDA_HOME} expansion in panda_jedi.cfg
       PANDA_HOME: /opt/panda
+      # Queues to render into the CRIC dumps (see render-cric.py). Keep in sync
+      # with the init service so every schedconfig queue is a full CRIC site.
+      PANDA_QUEUES: ${PANDA_QUEUES:-PANDA_COMPOSE_LOCAL}
       # JEDI's DDM client (rucio-clients) needs a client config to reach Rucio;
       # without it, task refine fails with rucio ConfigNotFound on listDatasets.
       RUCIO_HOME: /opt/rucio
@@ -165,7 +173,10 @@ services:
       - ./config/panda/panda_common.cfg:/etc/panda/panda_common.cfg:ro
       - ./config/panda/panda_server.cfg:/etc/panda/panda_server.cfg:ro
       - ./config/panda/panda_jedi.cfg:/etc/panda/panda_jedi.cfg:ro
-      - ./config/panda/cric:/etc/panda/cric:ro
+      # Mounted as templates; render-cric.py expands them per PANDA_QUEUES into
+      # the writable /etc/panda/cric that CRIC_URL_* points at.
+      - ./config/panda/cric:/etc/panda/cric-templates:ro
+      - ./scripts/render-cric.py:/opt/panda/render-cric.py:ro
       - ./config/panda/sandbox:/opt/panda/sandbox:ro
       - ./config/jedi/sandbox:/opt/panda/sandbox-jedi:ro
       - ./config/rucio/rucio-ci.cfg:/opt/rucio/etc/rucio.cfg:ro
