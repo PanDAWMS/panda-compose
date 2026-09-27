@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
-# setup-queue.sh — register the PANDA_COMPOSE_LOCAL compute queue directly in the
+# setup-queue.sh — register the configured compute queues directly in the
 # PanDA PostgreSQL database.  Called by the 'init' service after postgres is healthy.
 # Runs as the postgres superuser so it can create the atlas_panda schema alias.
+#
+# PANDA_QUEUES is a whitespace- or comma-separated list of queue names to register
+# (default: the single built-in PANDA_COMPOSE_LOCAL). Every listed queue gets an
+# identical schedconfig spec with the name substituted, so callers can provision
+# additional local queues without editing this script.
 set -euo pipefail
 
 PGHOST="${PGHOST:-postgres}"
@@ -10,7 +15,7 @@ PGUSER="${PGUSER:-postgres}"
 PGPASSWORD="${PGPASSWORD:-postgres_secret}"
 PGDATABASE="${PGDATABASE:-panda_db}"
 PANDA_DB_USER="${PANDA_DB_USER:-panda}"
-QUEUE_NAME="PANDA_COMPOSE_LOCAL"
+PANDA_QUEUES="${PANDA_QUEUES:-PANDA_COMPOSE_LOCAL}"
 
 export PGPASSWORD
 
@@ -106,27 +111,30 @@ ON CONFLICT (resource_name) DO UPDATE
 ENDOFSQL
 echo "resource_types seeded."
 
-# Step 2: register PANDA_COMPOSE_LOCAL queue using the panda user credentials.
+# Step 2: register the configured compute queues using the panda user credentials.
 export PGPASSWORD="${PANDA_DB_PASSWORD:-panda_secret}"
 export PGUSER="${PANDA_DB_USER}"
 
-echo "Registering queue '${QUEUE_NAME}' in postgres at ${PGHOST}:${PGPORT}..."
+for queue in ${PANDA_QUEUES//,/ }; do
+  echo "Registering queue '${queue}' in postgres at ${PGHOST}:${PGPORT}..."
 
-psql -v ON_ERROR_STOP=1 << 'ENDOFSQL'
+  # Unquoted heredoc so ${queue} expands; the spec contains no shell
+  # metacharacters ($, backtick, backslash) other than the queue name.
+  psql -v ON_ERROR_STOP=1 << ENDOFSQL
 -- panda_site: map the queue to itself
 INSERT INTO doma_panda.panda_site (panda_site_name, site_name, is_local)
-VALUES ('PANDA_COMPOSE_LOCAL', 'PANDA_COMPOSE_LOCAL', 'Y')
+VALUES ('${queue}', '${queue}', 'Y')
 ON CONFLICT (panda_site_name) DO NOTHING;
 
 -- schedconfig_json: full queue spec consumed by JEDI and Harvester
 INSERT INTO doma_panda.schedconfig_json (panda_queue, data, last_update)
 VALUES (
-  'PANDA_COMPOSE_LOCAL',
+  '${queue}',
   '{
-    "panda_queue":        "PANDA_COMPOSE_LOCAL",
-    "nickname":           "PANDA_COMPOSE_LOCAL",
-    "panda_resource":     "PANDA_COMPOSE_LOCAL",
-    "site_name":          "PANDA_COMPOSE_LOCAL",
+    "panda_queue":        "${queue}",
+    "nickname":           "${queue}",
+    "panda_resource":     "${queue}",
+    "site_name":          "${queue}",
     "status":             "online",
     "queue_type":         "unified",
     "type":               "analysis",
@@ -153,5 +161,6 @@ VALUES (
 ON CONFLICT (panda_queue) DO UPDATE
   SET data = EXCLUDED.data, last_update = NOW();
 ENDOFSQL
+done
 
-echo "Queue '${QUEUE_NAME}' registered. Done."
+echo "Queue registration complete: ${PANDA_QUEUES}."

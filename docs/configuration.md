@@ -56,7 +56,7 @@ customize service behavior; restart the affected container to apply changes.
 | `config/panda/panda_server.cfg` | `panda-server` | PanDA server settings |
 | `config/panda/panda_jedi.cfg` | `panda-jedi` | JEDI daemon settings |
 | `config/harvester/panda_harvester.cfg` | `harvester` | Harvester main config |
-| `config/harvester/panda_queues.cfg` | `harvester` | Compute queue definitions |
+| `config/harvester/panda_queues.template.json` | `harvester` | Queue template; concrete queues are rendered from `PANDA_QUEUES` |
 
 ### `config/panda/panda_server.cfg` highlights
 
@@ -74,9 +74,12 @@ adder_plugins    = any:pandaserver.dataservice.adder_dummy_plugin:AdderDummyPlug
 Both plugins are no-ops (no real data management). They are required in the no-Rucio
 configuration to prevent the setupper and adder daemons from failing on every job.
 
-### `config/harvester/panda_queues.cfg` — queue definition
+### `config/harvester/panda_queues.template.json` — queue template
 
-The queue configuration is JSON. The `PANDA_COMPOSE_LOCAL` queue uses the Docker plugins:
+The queue configuration is JSON. `panda_queues.template.json` defines the shared
+template queue; at harvester startup `scripts/render-panda-queues.py` expands the
+`PANDA_QUEUES` env list into `panda_queues.cfg`, one concrete queue per name, each
+referencing the template. The template queue uses the Docker plugins:
 
 ```json
 "submitter": {
@@ -100,9 +103,11 @@ The queue configuration is JSON. The `PANDA_COMPOSE_LOCAL` queue uses the Docker
 }
 ```
 
-To add a second queue (e.g., for a different experiment), add a new template entry
-and a corresponding site entry in `panda_queues.cfg` and register the site in the
-database via a modified version of `scripts/setup-queue.sh`.
+To add more queues, list them in `PANDA_QUEUES` (whitespace- or comma-separated),
+e.g. `PANDA_QUEUES=PANDA_COMPOSE_LOCAL E1_BNL E1_JLAB`. The same list drives both
+the harvester (`render-panda-queues.py`) and the PanDA schedconfig registration
+(`scripts/setup-queue.sh`), so the two stay in sync. Queues needing a different
+plugin set still require editing `panda_queues.template.json`.
 
 ## Ports
 

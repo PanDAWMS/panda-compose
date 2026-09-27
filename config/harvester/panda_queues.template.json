@@ -52,21 +52,5 @@
       "name": "DummySweeper",
       "module": "pandaharvester.harvestersweeper.dummy_sweeper"
     }
-  },
-
-  "PANDA_COMPOSE_LOCAL": {
-    "queueStatus": "online",
-    "prodSourceLabel": "test",
-    "prodSourceLabelRandomWeightsPermille": {"test": 1000},
-    "templateQueueName": "panda-compose-local.template",
-    "maxWorkers": 10,
-    "maxNewWorkersPerCycle": 5,
-    "nQueueLimitWorkerRatio": 10,
-    "nQueueLimitWorkerMin": 1,
-    "nQueueLimitWorkerMax": 10,
-    "nQueueLimitJob": 10,
-    "nQueueLimitJobRatio": 10,
-    "nQueueLimitJobMin": 1,
-    "nQueueLimitJobMax": 50
   }
 }
