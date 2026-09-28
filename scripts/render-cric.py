@@ -7,10 +7,14 @@ PANDA_QUEUES they must also appear in the CRIC dumps, otherwise the Configurator
 logs "SITE ... not found in CRIC", the sites get no DDM endpoints, and JEDI jobs
 never leave 'defined' (no storage/site info to dispatch or activate them).
 
-Each configured queue is cloned from the template queue/site entry (so it shares
-the template's DDM endpoint, e.g. MOCK-POSIX) with the name fields substituted.
-ddmendpoints/ddmblacklist are shared and copied verbatim. Output is written to
-the directory the server reads via CRIC_URL_* (default /etc/panda/cric).
+Every configured queue becomes a PanDA resource of the single template site
+(PANDA_COMPOSE_LOCAL): one schedconfig entry per queue (sharing the template's
+atlas_site and astorages), all listed under that site's `presources`. Keeping a
+single site means the one mock storage endpoint (MOCK-POSIX) is local to every
+queue (the Configurator's is_local compares the queue's atlas_site to the
+endpoint's site). ddmendpoints/ddmblacklist are copied verbatim. Output is
+written to the directory the server reads via CRIC_URL_* (default
+/etc/panda/cric).
 """
 import copy
 import json
@@ -20,7 +24,9 @@ TEMPLATE_QUEUE = os.environ.get("PANDA_CRIC_TEMPLATE_QUEUE", "PANDA_COMPOSE_LOCA
 SRC = os.environ.get("PANDA_CRIC_TEMPLATE_DIR", "/etc/panda/cric-templates")
 OUT = os.environ.get("PANDA_CRIC_OUTPUT_DIR", "/etc/panda/cric")
 
-NAME_FIELDS = ("panda_queue", "nickname", "panda_resource", "atlas_site", "site_name")
+# Fields that identify the queue itself. atlas_site / site_name are deliberately
+# NOT rekeyed: all queues stay on the single template site so storage is local.
+NAME_FIELDS = ("panda_queue", "nickname", "panda_resource")
 
 
 def load(name):
@@ -37,12 +43,11 @@ def main():
     queues = [
         q for q in os.environ.get("PANDA_QUEUES", TEMPLATE_QUEUE).replace(",", " ").split() if q
     ]
-    # Always keep the template queue itself defined.
-    if TEMPLATE_QUEUE not in queues:
-        queues.insert(0, TEMPLATE_QUEUE)
 
     os.makedirs(OUT, exist_ok=True)
 
+    # One schedconfig entry per queue, all sharing the template site's atlas_site
+    # (and astorages), so each queue's storage resolves as local.
     sched = load("schedconfig.json")
     sched_tmpl = sched[TEMPLATE_QUEUE]
     new_sched = {}
@@ -54,15 +59,13 @@ def main():
         new_sched[q] = entry
     write("schedconfig.json", new_sched)
 
+    # Single site hosting every queue as a PanDA resource. presources is keyed
+    # panda_resource -> panda_queue; list all queues so each maps to this site
+    # (and thus to its local MOCK-POSIX storage).
     sites = load("sites.json")
-    site_tmpl = sites[TEMPLATE_QUEUE]
-    new_sites = {}
-    for q in queues:
-        site = copy.deepcopy(site_tmpl)
-        # presources is keyed by panda_resource -> panda_queue; rekey to this queue.
-        site["presources"] = {q: {q: {"state": "ACTIVE"}}}
-        new_sites[q] = site
-    write("sites.json", new_sites)
+    site = copy.deepcopy(sites[TEMPLATE_QUEUE])
+    site["presources"] = {q: {q: {"state": "ACTIVE"}} for q in queues}
+    write("sites.json", {TEMPLATE_QUEUE: site})
 
     # DDM endpoints and blacklist are shared across all local queues.
     write("ddmendpoints.json", load("ddmendpoints.json"))
