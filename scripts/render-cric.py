@@ -37,9 +37,6 @@ def main():
     queues = [
         q for q in os.environ.get("PANDA_QUEUES", TEMPLATE_QUEUE).replace(",", " ").split() if q
     ]
-    # Always keep the template queue itself defined.
-    if TEMPLATE_QUEUE not in queues:
-        queues.insert(0, TEMPLATE_QUEUE)
 
     os.makedirs(OUT, exist_ok=True)
 

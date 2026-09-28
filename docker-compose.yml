@@ -91,7 +91,9 @@ services:
         # the configurator cron reads them, so extra local queues (E1_BNL, ...)
         # get full site + DDM-endpoint definitions. Without this the configurator
         # reports "SITE not found in CRIC" and JEDI jobs never leave 'defined'.
-        /opt/panda/bin/python /opt/panda/render-cric.py
+        # Abort startup if rendering fails rather than run PanDA/JEDI with absent
+        # or stale CRIC files.
+        /opt/panda/bin/python /opt/panda/render-cric.py || exit 1
         # Remove stale lock files left by a previous container run (the writable
         # layer is reused across restarts so these files persist).
         rm -f $${PANDA_LOCK_DIR:-/var/run/panda}/panda_daemon.lock \
