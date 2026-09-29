@@ -19,6 +19,19 @@ services:
   postgres:
     image: ghcr.io/pandawms/panda-database:latest
     restart: unless-stopped
+    # Preserve the image CMD (custom config_file/hba_file) and add cron.host so
+    # pg_cron's background worker connects over loopback TCP (127.0.0.1). pg_cron
+    # defaults to a connection path that misses pg_hba's local/localhost trust
+    # rules and hits the md5/reject rules, so every scheduled job fails with
+    # "connection failed". 127.0.0.1 matches "host all postgres localhost trust".
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
+      - -c
+      - cron.host=127.0.0.1
     environment:
       # The init script (panda_db_init.sh) connects as 'postgres' superuser.
       # It creates the 'panda' role using PANDA_DB_PASSWORD.
@@ -87,12 +100,23 @@ services:
         /opt/panda/bin/python /data/panda/process_template.py
         # Also process the httpd config directly since it's not a .template file
         /opt/panda/bin/python -c "import os, re; content=open('/opt/panda/sandbox/panda_server-httpd.conf').read(); [content.__setitem__('dummy', content.replace('$${'+k+'}',v)) or None for k,v in os.environ.items() if k.startswith('PANDA_SERVER_CONF_')]; open('/opt/panda/etc/panda/panda_server-httpd.conf','w').write(content)"
+        # Render the CRIC dumps for every configured queue (PANDA_QUEUES) before
+        # the configurator cron reads them, so extra local queues (E1_BNL, ...)
+        # get full site + DDM-endpoint definitions. Without this the configurator
+        # reports "SITE not found in CRIC" and JEDI jobs never leave 'defined'.
+        /opt/panda/bin/python /opt/panda/render-cric.py
         # Remove stale lock files left by a previous container run (the writable
         # layer is reused across restarts so these files persist).
         rm -f $${PANDA_LOCK_DIR:-/var/run/panda}/panda_daemon.lock \
               $${PANDA_LOCK_DIR:-/var/run/panda}/panda_daemon.pid \
               $${PANDA_LOCK_DIR:-/var/run/panda}/panda_daemon.pid.lock
         /data/panda/run-panda-services
+        # Run the panda-server crons (datasetManager, adder, ...). datasetManager
+        # is what activates JEDI-generated jobs (jobsdefined4 'defined' ->
+        # jobsactive4 'activated') once their input files are ready; without it
+        # jobs sit in 'defined' forever and the harvester never fetches them.
+        # (The script was already chmod'd above but never executed.)
+        /data/panda/run-panda-crons &
         # Start JEDI in background (same container, same pandaserver package)
         /data/panda/init-jedi
         /data/panda/run-jedi-crons &
@@ -103,6 +127,12 @@ services:
         condition: service_healthy
       activemq:
         condition: service_healthy
+      # JEDI runs inside this container and caches the work-queue / global-share
+      # map at startup. Wait for init to finish seeding those rows (plus
+      # pandadb_version and the atlas_panda views) first, otherwise JEDI caches an
+      # empty map and every task refine fails with "workqueue is undefined".
+      init:
+        condition: service_completed_successfully
     environment:
       # Database
       PANDA_DB_BACKEND: ${PANDA_DB_BACKEND:-postgres}
@@ -145,13 +175,24 @@ services:
       PANDA_RUCIO_ACCOUNT: ${PANDA_RUCIO_ACCOUNT:-root}
       # Required for LiveConfigParser ${PANDA_HOME} expansion in panda_jedi.cfg
       PANDA_HOME: /opt/panda
+      # Queues to render into the CRIC dumps (see render-cric.py). Keep in sync
+      # with the init service so every schedconfig queue is a full CRIC site.
+      PANDA_QUEUES: ${PANDA_QUEUES:-PANDA_COMPOSE_LOCAL}
+      # JEDI's DDM client (rucio-clients) needs a client config to reach Rucio;
+      # without it, task refine fails with rucio ConfigNotFound on listDatasets.
+      RUCIO_HOME: /opt/rucio
+      RUCIO_CONFIG: /opt/rucio/etc/rucio.cfg
     volumes:
       - ./config/panda/panda_common.cfg:/etc/panda/panda_common.cfg:ro
       - ./config/panda/panda_server.cfg:/etc/panda/panda_server.cfg:ro
       - ./config/panda/panda_jedi.cfg:/etc/panda/panda_jedi.cfg:ro
-      - ./config/panda/cric:/etc/panda/cric:ro
+      # Mounted as templates; render-cric.py expands them per PANDA_QUEUES into
+      # the writable /etc/panda/cric that CRIC_URL_* points at.
+      - ./config/panda/cric:/etc/panda/cric-templates:ro
+      - ./scripts/render-cric.py:/opt/panda/render-cric.py:ro
       - ./config/panda/sandbox:/opt/panda/sandbox:ro
       - ./config/jedi/sandbox:/opt/panda/sandbox-jedi:ro
+      - ./config/rucio/rucio-ci.cfg:/opt/rucio/etc/rucio.cfg:ro
       - panda-server-logs:/var/log/panda
       - panda-cache:/var/cache/pandaserver
     ports:
@@ -188,6 +229,8 @@ services:
       PANDA_DB_USER: panda
       PANDA_DB_PASSWORD: ${PANDA_DB_PASSWORD:-panda_secret}
       PANDA_QUEUES: ${PANDA_QUEUES:-PANDA_COMPOSE_LOCAL}
+      PANDA_TASK_VO: ${PANDA_TASK_VO:-epic}
+      PANDA_TASK_LABEL: ${PANDA_TASK_LABEL:-test}
 
   # ────────────────────────────────────────────────────────────────
   # Harvester — resource-facing pilot submission service.

@@ -144,9 +144,31 @@ The `init` service runs `scripts/setup-queue.sh` once after `postgres` and
 1. Inserts the `PANDA_COMPOSE_LOCAL` site into `schedconfig` and `cloudconfig`
 2. Inserts a JEDI version row into `pandadb_version` (required by JEDI startup)
 3. Creates the `atlas_panda` schema with 261 VIEWs over `doma_panda` tables
+4. Seeds `resource_types` (`SCORE`), and a `jedi_work_queue` + `global_shares`
+   row for `PANDA_TASK_VO`/`PANDA_TASK_LABEL` — required for the JEDI task path
+   (see below); direct job submission does not need them
+5. Applies `scripts/setup-cron.sql` to schedule PanDA's pg_cron maintenance jobs
+   (see below)
 
 `panda-jedi` has `depends_on: init: service_completed_successfully`, so it will not
 start until the init container exits 0.
+
+### pg_cron maintenance jobs
+
+JEDI tasks (the `prun` / `panda_api.submit_task` path, as opposed to direct
+`pandajob-submit` jobs) rely on aggregation tables — chiefly
+`doma_panda.JEDI_AUX_Status_MinTaskID` — that every JEDI stage JOINs against to
+find work. These are maintained by stored procedures (e.g.
+`jedi_refr_mintaskids_bystatus()`, `update_jobsactive_stats()`) that upstream
+PanDA schedules via `pg_cron`. The `panda-database` image preloads `pg_cron`
+(in the `postgres` database) and `panda_db_init.sh` even calls
+`post_step_cron.sql` — but that file is not shipped in the image, so no jobs are
+scheduled. Left stale, the aggregation tables fall out of date on every task/job
+status transition and the pipeline silently stalls.
+
+`init` applies `scripts/setup-cron.sql` (against the `postgres` database, where
+the extension lives) to schedule the full set of jobs with
+`cron.schedule_in_database`, targeting `panda_db`. Named jobs make it idempotent.
 
 ### harvester — job executor
 

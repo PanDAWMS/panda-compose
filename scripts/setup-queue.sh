@@ -16,6 +16,13 @@ PGPASSWORD="${PGPASSWORD:-postgres_secret}"
 PGDATABASE="${PGDATABASE:-panda_db}"
 PANDA_DB_USER="${PANDA_DB_USER:-panda}"
 PANDA_QUEUES="${PANDA_QUEUES:-PANDA_COMPOSE_LOCAL}"
+# VO / prodSourceLabel that JEDI *tasks* are submitted under. These must match
+# the [taskrefine] procConfig in config/panda/panda_jedi.cfg (epic:test) so the
+# refiner picks the task up, and they drive the JEDI work-queue / global-share
+# rows seeded below. Direct-job submission (scripts/pandajob-submit) does not
+# use these; only the JEDI task path (prun / panda_api.submit_task) does.
+PANDA_TASK_VO="${PANDA_TASK_VO:-epic}"
+PANDA_TASK_LABEL="${PANDA_TASK_LABEL:-test}"
 
 export PGPASSWORD
 
@@ -110,6 +117,45 @@ ON CONFLICT (resource_name) DO UPDATE
   SET minrampercore = 0, maxrampercore = 8192;
 ENDOFSQL
 echo "resource_types seeded."
+
+# Step 1d: seed the JEDI work queue and global share required to refine and
+# schedule JEDI *tasks* (as opposed to direct jobs, which bypass JEDI). Without
+# these, TaskRefiner fails with "workqueue is undefined for vo=..." and the task
+# is stuck in 'waiting' forever. panda-compose historically only exercised the
+# direct-job path, so these rows were never seeded upstream.
+#
+#   - jedi_work_queue: queue_function MUST be 'Resource' (not e.g. 'Analysis'),
+#     otherwise WorkQueue.isAligned() is false, getAlignedQueueList() returns []
+#     and JobGenerator never processes the task. Empty criteria => the queue
+#     matches any task with this vo+queue_type, which also sidesteps the
+#     WorkQueue.pack() re.sub(count=re.I) criteria-parser bug.
+#   - global_shares: at least one row is required or WorkQueueMapper crashes in
+#     get_share_for_task (re.match(None, ...)) and refine raises
+#     "task definition does not match any global share".
+echo "Seeding JEDI work queue and global share for vo=${PANDA_TASK_VO} label=${PANDA_TASK_LABEL}..."
+psql -v ON_ERROR_STOP=1 << ENDOFSQL
+INSERT INTO doma_panda.jedi_work_queue
+  (queue_id, queue_name, queue_type, vo, status, queue_share, queue_order, queue_function)
+VALUES (100, 'default_${PANDA_TASK_VO}', '${PANDA_TASK_LABEL}', '${PANDA_TASK_VO}', 'active', 100, 1, 'Resource')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO doma_panda.global_shares
+  (name, value, parent, prodsourcelabel, vo, throttled)
+VALUES ('Test', 100, NULL, '${PANDA_TASK_LABEL}', '${PANDA_TASK_VO}', '0')
+ON CONFLICT DO NOTHING;
+ENDOFSQL
+echo "JEDI work queue and global share seeded."
+
+# Step 1e: schedule PanDA's pg_cron maintenance jobs. The image preloads pg_cron
+# (in the 'postgres' database) and panda_db_init.sh tries to apply
+# post_step_cron.sql, but that file is not shipped in the image, so no jobs get
+# scheduled and JEDI aggregation tables go stale, stalling the task->job pipeline.
+# setup-cron.sql is applied against 'postgres' (where the extension lives) and
+# uses cron.schedule_in_database to run each command in 'panda_db'.
+echo "Scheduling pg_cron maintenance jobs..."
+command psql -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" -d postgres -v ON_ERROR_STOP=1 \
+  -f "$(dirname "$0")/setup-cron.sql"
+echo "pg_cron maintenance jobs scheduled."
 
 # Step 2: register the configured compute queues using the panda user credentials.
 export PGPASSWORD="${PANDA_DB_PASSWORD:-panda_secret}"
