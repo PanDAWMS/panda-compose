@@ -205,6 +205,7 @@ services:
       PANDA_DB_USER: panda
       PANDA_DB_PASSWORD: ${PANDA_DB_PASSWORD:-panda_secret}
       PANDA_QUEUES: ${PANDA_QUEUES:-PANDA_COMPOSE_LOCAL}
+      PANDA_TASK_LABEL: ${PANDA_TASK_LABEL:-test}
 
   # ────────────────────────────────────────────────────────────────
   # Harvester — resource-facing pilot submission service.
