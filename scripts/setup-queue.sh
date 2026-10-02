@@ -20,11 +20,6 @@ PANDA_QUEUES="${PANDA_QUEUES:-PANDA_COMPOSE_LOCAL}"
 # work-queue / global-share rows seeded below. Direct-job submission
 # (scripts/pandajob-submit) does not use these; only the JEDI task path (prun /
 # panda_api.submit_task) does.
-#
-# VO is fixed to 'epic' because config/panda/panda_jedi.cfg hardcodes it across
-# every JEDI stage (ddm, taskrefine, jobbroker, ...); it is not independently
-# tunable without editing that file. The label is configurable: [taskrefine]
-# uses epic:any, so any prodSourceLabel is refined for the epic VO.
 PANDA_TASK_VO="epic"
 PANDA_TASK_LABEL="${PANDA_TASK_LABEL:-test}"
 
