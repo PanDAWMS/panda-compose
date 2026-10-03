@@ -40,6 +40,23 @@ in `docker-compose.yml` so the stack starts even without a `.env` file.
 | `PANDA_SERVER_CONF_MAX_WORKERS` | `4` | Apache prefork maximum workers |
 | `PANDA_SERVER_CONF_SERVERNAME` | `localhost` | Apache `ServerName` |
 
+### JEDI task submission
+
+These apply only to the JEDI *task* path (`prun` / `panda_api.submit_task`).
+Direct job submission (`scripts/pandajob-submit`) bypasses JEDI and ignores them.
+
+| Variable | Default | Description |
+|---|---|---|
+| `PANDA_TASK_LABEL` | `test` | `prodSourceLabel` of JEDI tasks; also the seeded work-queue `queue_type`. `[taskrefine]` uses `epic:any`, so any value is refined |
+
+The VO is fixed to `epic` in `config/panda/panda_jedi.cfg` (hardcoded across every
+JEDI stage) and is not independently configurable.
+
+`setup-queue.sh` seeds a `jedi_work_queue` row (`queue_function='Resource'`) and
+a `global_shares` row for the `epic` VO / `PANDA_TASK_LABEL`; without both, the
+TaskRefiner fails with `workqueue is undefined` and the task never leaves
+`waiting`.
+
 ### Proxies
 
 If you are behind a corporate proxy, set `HTTP_PROXY` and `HTTPS_PROXY` in `.env`.

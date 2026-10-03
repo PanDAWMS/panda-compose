@@ -144,6 +144,9 @@ The `init` service runs `scripts/setup-queue.sh` once after `postgres` and
 1. Inserts the `PANDA_COMPOSE_LOCAL` site into `schedconfig` and `cloudconfig`
 2. Inserts a JEDI version row into `pandadb_version` (required by JEDI startup)
 3. Creates the `atlas_panda` schema with 261 VIEWs over `doma_panda` tables
+4. Seeds `resource_types` (`SCORE`), and a `jedi_work_queue` + `global_shares`
+   row for the `epic` VO / `PANDA_TASK_LABEL` — required for the JEDI task path
+   (see below); direct job submission does not need them
 
 `panda-jedi` has `depends_on: init: service_completed_successfully`, so it will not
 start until the init container exits 0.

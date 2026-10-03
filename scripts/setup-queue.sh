@@ -16,6 +16,12 @@ PGPASSWORD="${PGPASSWORD:-postgres_secret}"
 PGDATABASE="${PGDATABASE:-panda_db}"
 PANDA_DB_USER="${PANDA_DB_USER:-panda}"
 PANDA_QUEUES="${PANDA_QUEUES:-PANDA_COMPOSE_LOCAL}"
+# VO / prodSourceLabel that JEDI *tasks* are submitted under; they drive the JEDI
+# work-queue / global-share rows seeded below. Direct-job submission
+# (scripts/pandajob-submit) does not use these; only the JEDI task path (prun /
+# panda_api.submit_task) does.
+PANDA_TASK_VO="epic"
+PANDA_TASK_LABEL="${PANDA_TASK_LABEL:-test}"
 
 export PGPASSWORD
 
@@ -110,6 +116,37 @@ ON CONFLICT (resource_name) DO UPDATE
   SET minrampercore = 0, maxrampercore = 8192;
 ENDOFSQL
 echo "resource_types seeded."
+
+# Step 1d: seed the JEDI work queue and global share required to refine and
+# schedule JEDI *tasks* (as opposed to direct jobs, which bypass JEDI). Without
+# these, TaskRefiner fails with "workqueue is undefined for vo=..." and the task
+# is stuck in 'waiting' forever. panda-compose historically only exercised the
+# direct-job path, so these rows were never seeded upstream.
+#
+#   - jedi_work_queue: queue_function MUST be 'Resource' (not e.g. 'Analysis'),
+#     otherwise WorkQueue.isAligned() is false, getAlignedQueueList() returns []
+#     and JobGenerator never processes the task. Empty criteria => the queue
+#     matches any task with this vo+queue_type, which also sidesteps the
+#     WorkQueue.pack() re.sub(count=re.I) criteria-parser bug. queue_share is
+#     left NULL: epic:any uses GenJobThrottler, which throttles any queue whose
+#     queue_share is non-NULL, so a value here would make JobGenerator skip this
+#     very queue.
+#   - global_shares: at least one row is required or WorkQueueMapper crashes in
+#     get_share_for_task (re.match(None, ...)) and refine raises
+#     "task definition does not match any global share".
+echo "Seeding JEDI work queue and global share for vo=${PANDA_TASK_VO} label=${PANDA_TASK_LABEL}..."
+psql -v ON_ERROR_STOP=1 << ENDOFSQL
+INSERT INTO doma_panda.jedi_work_queue
+  (queue_id, queue_name, queue_type, vo, status, queue_order, queue_function)
+VALUES (100, 'default_${PANDA_TASK_VO}', '${PANDA_TASK_LABEL}', '${PANDA_TASK_VO}', 'active', 1, 'Resource')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO doma_panda.global_shares
+  (name, value, parent, prodsourcelabel, vo, throttled)
+VALUES ('Test', 100, NULL, '${PANDA_TASK_LABEL}', '${PANDA_TASK_VO}', '0')
+ON CONFLICT DO NOTHING;
+ENDOFSQL
+echo "JEDI work queue and global share seeded."
 
 # Step 2: register the configured compute queues using the panda user credentials.
 export PGPASSWORD="${PANDA_DB_PASSWORD:-panda_secret}"
