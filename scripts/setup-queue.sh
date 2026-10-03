@@ -148,6 +148,29 @@ ON CONFLICT DO NOTHING;
 ENDOFSQL
 echo "JEDI work queue and global share seeded."
 
+# Step 1e: fix the connection path of PanDA's pg_cron maintenance jobs. The image
+# schedules them in panda_db_init.sh (post_step_cron.sql) but then sets
+# nodename=''. pg_cron passes the stored nodename to libpq at run time, so an
+# empty value leaves the background worker relying on libpq's default Unix-socket
+# path; in this stack those jobs do not connect, so they never run and the
+# aggregation tables JEDI JOINs against go stale, stalling the task->job pipeline.
+#
+# cron.host only populates nodename when a job is *scheduled*; it is not a
+# run-time fallback for an empty stored nodename, so it cannot fix the jobs the
+# image already created. Rewrite their stored nodename to 127.0.0.1 instead,
+# selecting loopback TCP -- the server listens on it (listen_addresses='*') and
+# pg_hba trusts it ("host all <user> localhost trust"). cron.job lives in the
+# 'postgres' database where the extension is installed. Idempotent, and a no-op
+# if no such jobs exist yet.
+echo "Pointing pg_cron maintenance jobs at 127.0.0.1..."
+command psql -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" -d postgres -v ON_ERROR_STOP=1 -c "
+  UPDATE cron.job SET nodename = '127.0.0.1' WHERE nodename <> '127.0.0.1' AND (
+       command LIKE '%doma_panda.%'
+    OR command LIKE '%partman.run_maintenance_proc%'
+    OR command LIKE '%cron.job_run_details%'
+    OR command LIKE '%mv_worker_node%');"
+echo "pg_cron maintenance jobs updated."
+
 # Step 2: register the configured compute queues using the panda user credentials.
 export PGPASSWORD="${PANDA_DB_PASSWORD:-panda_secret}"
 export PGUSER="${PANDA_DB_USER}"
