@@ -151,6 +151,26 @@ The `init` service runs `scripts/setup-queue.sh` once after `postgres` and
 `panda-jedi` has `depends_on: init: service_completed_successfully`, so it will not
 start until the init container exits 0.
 
+### pg_cron maintenance jobs
+
+JEDI relies on aggregation tables (chiefly `doma_panda.JEDI_AUX_Status_MinTaskID`,
+plus the jobsactive/jobsdef stats) that every JEDI stage JOINs against to find
+work. The `panda-database` image already schedules the procedures that maintain
+them: `panda_db_init.sh` runs `post_step_cron.sql`, which registers the pg_cron
+jobs but sets their `nodename=''`.
+
+Those jobs still need a working connection path. pg_cron passes the stored
+`nodename` to libpq at run time; the image leaves it empty, so the background
+worker relies on libpq's default Unix-socket path. In this stack those jobs do
+not connect, so they never run — the aggregation tables go stale and the
+task→job pipeline stalls. `cron.host` does not help here: it only supplies the
+`nodename` when a job is *scheduled*, not as a run-time fallback for an empty
+stored value. So `init` rewrites the managed jobs' stored `nodename` to
+`127.0.0.1` via `setup-queue.sh`, selecting loopback TCP instead — the server
+listens on it (`listen_addresses='*'`) and `pg_hba` trusts it
+(`host all <user> localhost trust`). The update targets the `postgres` database
+(where `cron.job` lives) and is idempotent.
+
 ### harvester — job executor
 
 Uses `ghcr.io/hsf/harvester:latest`. In this stack, Harvester is configured to use
