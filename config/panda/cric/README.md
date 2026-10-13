@@ -29,19 +29,34 @@ Add fields on demand if you enable additional Configurator features.
 
 ## Wiring
 
-`config/panda/panda_server.cfg` sets `CRIC_URL_*` to `file:///etc/panda/cric/<name>.json`
-and `docker-compose.yml` mounts this directory into the panda-server container
-at that path.
+`config/panda/panda_server.cfg` sets `CRIC_URL_*` to `file:///etc/panda/cric/<name>.json`.
+These JSON files are **templates**: `docker-compose.yml` mounts this directory
+read-only at `/etc/panda/cric-templates`, and at panda-server startup
+`scripts/render-cric.py` expands them into the writable `/etc/panda/cric` that
+`CRIC_URL_*` points at — one full site/queue entry per queue in `PANDA_QUEUES`,
+each cloned from the `PANDA_COMPOSE_LOCAL` template (sharing its MOCK-POSIX
+endpoint). So the files here describe a single template queue; the per-queue
+dumps the Configurator actually reads are generated at runtime.
 
 ## Adding a queue or site
 
-1. Add an entry to `schedconfig.json` (must include `panda_queue`,
-   `panda_resource`, `atlas_site`, `astorages`).
-2. Add the site to `sites.json` (must include `state=ACTIVE`,
+For extra compute queues, you normally do **not** edit these files — set
+`PANDA_QUEUES` (see `docs/configuration.md`) and `render-cric.py` clones the
+template entry for each queue automatically.
+
+To change the shared shape of every rendered queue, edit the single
+`PANDA_COMPOSE_LOCAL` template entry in place (the renderer only ever reads that
+entry and rebuilds the dumps from it, so adding extra entries here has no effect):
+
+1. Edit the `PANDA_COMPOSE_LOCAL` entry in `schedconfig.json` (keeps
+   `panda_queue`, `panda_resource`, `atlas_site`, `astorages`).
+2. Edit the `PANDA_COMPOSE_LOCAL` site in `sites.json` (keeps `state=ACTIVE`,
    `tier_level`, `datapolicies`, `ddmendpoints`, `presources`).
-3. Add each DDM endpoint referenced by the site to `ddmendpoints.json`
-   (must include `state=ACTIVE`, `token`, `site`, `type`, `is_tape`).
-4. Restart or wait ~4 minutes for the next configurator run.
+3. Edit the DDM endpoint(s) referenced by the site in `ddmendpoints.json`
+   (each keeps `state=ACTIVE`, `token`, `site`, `type`, `is_tape`).
+4. Restart panda-server — rendering runs only at container startup, so a
+   restart is required; waiting for the next Configurator run will not pick up
+   template edits (it reads the already-rendered `/etc/panda/cric`).
 
 The `panda_queues.cfg` in Harvester still needs to reference the queue name
 independently — the CRIC dumps only tell panda-server about the queue; they
