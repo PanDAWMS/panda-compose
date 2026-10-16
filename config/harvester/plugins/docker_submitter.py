@@ -23,6 +23,12 @@ BEFORE the container starts. This works because the local dev RSE
 is bind-mounted read-only into the worker container. The user's exec can then
 reference the input LFN as a relative path.
 
+The prun source sandbox (jobPars "-a jobO.<uuid>.tar.gz", uploaded by
+PrunScript to the PanDA cache at pandaCacheBase) is fetched and extracted
+into the same /output directory before the container starts, mirroring what
+the runGen transformation does on a real WN. Without it the user's "-p"
+exec (e.g. "./payload.sh") has nothing to run and the container exits 127.
+
 Queue config example:
 
     "submitter": {
@@ -31,13 +37,17 @@ Queue config example:
         "containerImage": "alpine:latest",
         "dockerSocket": "unix:///var/run/docker.sock",
         "outputBaseDir": "/tmp/harvester_output",
-        "rseBaseDir": "/tmp/rucio_rse"
+        "rseBaseDir": "/tmp/rucio_rse",
+        "pandaCacheBase": "http://panda-server:80/cache"
     }
 """
 
 import hashlib
 import os
 import shlex
+import tarfile
+import tempfile
+import urllib.request
 import uuid
 
 import docker as docker_module
@@ -69,6 +79,11 @@ class DockerSubmitter(PluginBase):
         # Host-side directory that holds the MOCK-POSIX RSE bytes. Bind-mounted
         # RO into the worker container so the input LFNs (as symlinks) resolve.
         self.rseBaseDir = "/tmp/rucio_rse"
+        # Base URL of the PanDA cache (httpd Alias /cache/ -> pandacache/).
+        # Used to fetch the prun sandbox referenced by the job's "-a <name>"
+        # jobPars entry. Must be a URL reachable from the harvester container;
+        # the default follows the compose-internal panda-server hostname.
+        self.pandaCacheBase = "http://panda-server:80/cache"
         PluginBase.__init__(self, **kwarg)
 
     def _resolve_image(self, job, wLog):
@@ -186,6 +201,71 @@ class DockerSubmitter(PluginBase):
             except OSError as exc:
                 wLog.warning(f"could not symlink {src} to {dst}: {exc}")
 
+    def _get_sandbox_name(self, job, wLog):
+        """Return the prun sandbox archive name from the job's "-a <name>"
+        jobPars entry, or None when the job carries no sandbox.
+
+        PrunScript bakes the uploaded source archive into jobParameters as
+        "-a jobO.<uuid>.tar.gz" (see PrunScript ~line 2239). On a real WN the
+        runGen transformation downloads it from ${SURL}/cache/ and extracts it
+        before exec'ing the user's "-p" payload. This submitter runs "-p"
+        directly, so it must do the download+extract itself.
+        """
+        if not job:
+            return None
+        job_pars = (job.jobParams or {}).get("jobPars", "") or ""
+        try:
+            parts = shlex.split(job_pars)
+        except ValueError:
+            wLog.warning(f"could not shlex-split jobPars for sandbox lookup: {job_pars!r}")
+            return None
+        for i, p in enumerate(parts):
+            if p == "-a" and i + 1 < len(parts):
+                return parts[i + 1]
+        return None
+
+    def _stage_in_sandbox(self, job, worker_output_host, wLog):
+        """Fetch the prun sandbox from the PanDA cache and extract it into the
+        worker's output dir so the container sees its files under /output.
+
+        Best-effort: a missing/unreachable sandbox logs a warning and leaves
+        the job to fail at exec time (same behaviour as before this existed).
+        """
+        archive_name = self._get_sandbox_name(job, wLog)
+        if not archive_name:
+            wLog.debug("no -a sandbox in jobPars; skipping sandbox stage-in")
+            return
+        # Only accept a bare filename: the value comes from the task's
+        # jobParameters and must never turn into an arbitrary URL/path fetch.
+        if "/" in archive_name or archive_name.startswith(("http://", "https://")):
+            wLog.warning(f"unexpected sandbox name {archive_name!r}; skipping sandbox stage-in")
+            return
+        url = f"{self.pandaCacheBase.rstrip('/')}/{archive_name}"
+        tmp_path = None
+        try:
+            wLog.debug(f"fetching sandbox {url}")
+            with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
+                tmp_path = tmp.name
+                with urllib.request.urlopen(url, timeout=60) as resp:
+                    tmp.write(resp.read())
+            with tarfile.open(tmp_path) as tar:
+                # filter= guards against path traversal outside the dest
+                # (Python >= 3.12 default; explicit for older versions).
+                try:
+                    tar.extractall(worker_output_host, filter="data")
+                except TypeError:
+                    # Python < 3.11.4 has no filter kwarg
+                    tar.extractall(worker_output_host)
+            wLog.debug(f"extracted sandbox {archive_name} into {worker_output_host}")
+        except Exception as exc:
+            wLog.warning(f"failed to stage in sandbox {archive_name} from {url}: {exc}")
+        finally:
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+
     def submit_workers(self, workspec_list):
         tmpLog = self.make_logger(baseLogger, method_name="submit_workers")
         tmpLog.debug(f"start nWorkers={len(workspec_list)}")
@@ -216,6 +296,9 @@ class DockerSubmitter(PluginBase):
 
                 # Stage inputs BEFORE launching the container.
                 self._stage_in_inputs(job, worker_output_host, wLog)
+                # Stage the prun sandbox (-a jobO.*.tar.gz) the same way, so
+                # the user's "./payload.sh" (from -p) actually exists in /output.
+                self._stage_in_sandbox(job, worker_output_host, wLog)
 
                 # Record the output dir on the workspec for the stager. workAttributes
                 # is a JSON blob persisted with the worker row.
