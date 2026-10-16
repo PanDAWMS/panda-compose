@@ -19,6 +19,19 @@ services:
   postgres:
     image: ghcr.io/pandawms/panda-database:latest
     restart: unless-stopped
+    # Preserve the image CMD (custom config_file/hba_file) and add cron.host so
+    # pg_cron's background worker connects over loopback TCP (127.0.0.1). pg_cron
+    # defaults to a connection path that misses pg_hba's local/localhost trust
+    # rules and hits the md5/reject rules, so every scheduled job fails with
+    # "connection failed". 127.0.0.1 matches "host all postgres localhost trust".
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
+      - -c
+      - cron.host=127.0.0.1
     environment:
       # The init script (panda_db_init.sh) connects as 'postgres' superuser.
       # It creates the 'panda' role using PANDA_DB_PASSWORD.

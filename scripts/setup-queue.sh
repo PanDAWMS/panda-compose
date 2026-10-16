@@ -148,20 +148,28 @@ ON CONFLICT DO NOTHING;
 ENDOFSQL
 echo "JEDI work queue and global share seeded."
 
-# Step 1e: fix the connection path of PanDA's pg_cron maintenance jobs. The image
-# schedules them in panda_db_init.sh (post_step_cron.sql) but then sets
-# nodename=''. pg_cron passes the stored nodename to libpq at run time, so an
-# empty value leaves the background worker relying on libpq's default Unix-socket
-# path; in this stack those jobs do not connect, so they never run and the
-# aggregation tables JEDI JOINs against go stale, stalling the task->job pipeline.
-#
-# cron.host only populates nodename when a job is *scheduled*; it is not a
-# run-time fallback for an empty stored nodename, so it cannot fix the jobs the
-# image already created. Rewrite their stored nodename to 127.0.0.1 instead,
-# selecting loopback TCP -- the server listens on it (listen_addresses='*') and
-# pg_hba trusts it ("host all <user> localhost trust"). cron.job lives in the
-# 'postgres' database where the extension is installed. Idempotent, and a no-op
-# if no such jobs exist yet.
+# Step 1e: schedule PanDA's pg_cron maintenance jobs and point them at loopback.
+# The image's panda_db_init.sh is supposed to apply post_step_cron.sql on first
+# init, but it dies partway through the schema build in this stack -- the
+# recovery block above finishes the schema, and it does not install any cron
+# jobs, so cron.job stays empty (a nodename rewrite alone is a no-op then).
+# setup-cron.sql is applied against 'postgres' (where the pg_cron extension
+# lives) and uses cron.schedule_in_database to run each command in 'panda_db'.
+# Without jedi_refr_mintaskids_bystatus the JEDI_AUX_* tables stay empty and
+# every JEDI scan joining them (e.g. getDatasetsToFeedContents_JEDI) matches
+# nothing: tasks stay 'defined' and the task->job pipeline stalls with no error
+# logged. Jobs are named, so re-running updates them in place (idempotent).
+echo "Scheduling pg_cron maintenance jobs..."
+command psql -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" -d postgres -v ON_ERROR_STOP=1 \
+  -f "$(dirname "$0")/setup-cron.sql"
+echo "pg_cron maintenance jobs scheduled."
+
+# cron.schedule defaults the stored nodename to '', which leaves pg_cron's
+# worker on libpq's default Unix-socket path; in this stack that path does not
+# connect. Rewrite the stored nodename to loopback TCP -- the server listens on
+# it (listen_addresses='*') and pg_hba trusts it ("host all <user> localhost
+# trust"). cron.host (docker-compose.yml) only populates nodename when a job is
+# *scheduled*, so this also repairs jobs created by other paths. Idempotent.
 echo "Pointing pg_cron maintenance jobs at 127.0.0.1..."
 command psql -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" -d postgres -v ON_ERROR_STOP=1 -c "
   UPDATE cron.job SET nodename = '127.0.0.1' WHERE nodename <> '127.0.0.1' AND (

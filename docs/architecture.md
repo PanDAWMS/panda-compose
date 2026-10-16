@@ -155,21 +155,32 @@ start until the init container exits 0.
 
 JEDI relies on aggregation tables (chiefly `doma_panda.JEDI_AUX_Status_MinTaskID`,
 plus the jobsactive/jobsdef stats) that every JEDI stage JOINs against to find
-work. The `panda-database` image already schedules the procedures that maintain
-them: `panda_db_init.sh` runs `post_step_cron.sql`, which registers the pg_cron
-jobs but sets their `nodename=''`.
+work. The `panda-database` image is *meant* to schedule the procedures that
+maintain them (`panda_db_init.sh` → `post_step_cron.sql`), but that init aborts
+partway through in this stack — `setup-queue.sh` finishes the schema afterwards,
+and the cron step is never reached, so `cron.job` is left empty. With nothing
+refreshing `JEDI_AUX_Status_MinTaskID`, every JEDI scan that JOINs it matches
+nothing, tasks stay `defined`, and the task→job pipeline stalls with no error
+logged.
 
-Those jobs still need a working connection path. pg_cron passes the stored
-`nodename` to libpq at run time; the image leaves it empty, so the background
-worker relies on libpq's default Unix-socket path. In this stack those jobs do
-not connect, so they never run — the aggregation tables go stale and the
-task→job pipeline stalls. `cron.host` does not help here: it only supplies the
-`nodename` when a job is *scheduled*, not as a run-time fallback for an empty
-stored value. So `init` rewrites the managed jobs' stored `nodename` to
-`127.0.0.1` via `setup-queue.sh`, selecting loopback TCP instead — the server
-listens on it (`listen_addresses='*'`) and `pg_hba` trusts it
-(`host all <user> localhost trust`). The update targets the `postgres` database
-(where `cron.job` lives) and is idempotent.
+So `init` schedules the jobs itself via `setup-queue.sh`, which applies
+`setup-cron.sql` against the `postgres` database (where the pg_cron extension
+and `cron.job` live). Each job uses `cron.schedule_in_database(...)` to run in
+`panda_db` as the `panda` role, whose `search_path` (`doma_panda,public`)
+resolves the unqualified table names the aggregation procedures use. Only the
+per-minute aggregations the pipeline needs, plus partman/history housekeeping,
+are scheduled; the upstream hourly `mv_worker_node_*` refreshes and daily
+`update_worker_node_map()`/metrics jobs are omitted (the materialized views ship
+`WITH NO DATA` so `REFRESH ... CONCURRENTLY` errors, and `update_worker_node_map()`
+was dropped in schema 0.0.30).
+
+The jobs also need a working connection path. pg_cron passes the stored
+`nodename` to libpq at run time; `cron.host=127.0.0.1` (set in
+`docker-compose.yml`) populates it at schedule time, selecting loopback TCP —
+the server listens on it (`listen_addresses='*'`) and `pg_hba` trusts it
+(`host all <user> localhost trust`). As belt-and-braces, `setup-queue.sh` also
+rewrites the stored `nodename` to `127.0.0.1` for any managed job afterwards.
+Both are idempotent.
 
 ### harvester — job executor
 
