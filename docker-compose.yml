@@ -162,14 +162,24 @@ services:
       PANDA_VERIFY_HOST: "off"
       PANDA_BEHIND_REAL_LB: "1"
       PANDA_SERVER_CONF_PORT: ${PANDA_SERVER_CONF_PORT:-80}
-      PANDA_SERVER_CONF_MIN_WORKERS: ${PANDA_SERVER_CONF_MIN_WORKERS:-1}
       PANDA_SERVER_CONF_MAX_WORKERS: ${PANDA_SERVER_CONF_MAX_WORKERS:-16}
+      PANDA_SERVER_CONF_MIN_WORKERS: ${PANDA_SERVER_CONF_MIN_WORKERS:-1}
       PANDA_SERVER_CONF_MAX_CONNECTIONS: ${PANDA_SERVER_CONF_MAX_CONNECTIONS:-200}
-      PANDA_SERVER_CONF_THREADS_PER_CHILD: ${PANDA_SERVER_CONF_THREADS_PER_CHILD:-1}
+      # Event-MPM threads per child: how many concurrent connections each
+      # httpd child serves. Keep >1 so slow requests don't pin whole
+      # scoreboard slots and starve the server (AH03490).
+      PANDA_SERVER_CONF_THREADS_PER_CHILD: ${PANDA_SERVER_CONF_THREADS_PER_CHILD:-4}
       PANDA_SERVER_CONF_MAX_BACKLOG: ${PANDA_SERVER_CONF_MAX_BACKLOG:-511}
       PANDA_SERVER_CONF_SERVERNAME: ${PANDA_SERVER_CONF_SERVERNAME:-localhost}
-      PANDA_SERVER_CONF_NUM_WSGI: ${PANDA_SERVER_CONF_NUM_WSGI:-2}
-      PANDA_SERVER_CONF_NUM_WSGI_THREAD: ${PANDA_SERVER_CONF_NUM_WSGI_THREAD:-4}
+      PANDA_SERVER_CONF_NUM_WSGI: ${PANDA_SERVER_CONF_NUM_WSGI:-4}
+      PANDA_SERVER_CONF_NUM_WSGI_THREAD: ${PANDA_SERVER_CONF_NUM_WSGI_THREAD:-8}
+      # mod_wsgi queue/connect timeouts (see WSGIDaemonProcess in
+      # panda_server-httpd.conf). Requests that cannot get a daemon thread
+      # queue in the daemon and fail with 503 (WSGI0084) once queue-timeout
+      # expires; connect-timeout bounds the wait for the daemon process to
+      # accept the connection.
+      PANDA_SERVER_CONF_WSGI_QUEUE_TIMEOUT: ${PANDA_SERVER_CONF_WSGI_QUEUE_TIMEOUT:-30}
+      PANDA_SERVER_CONF_WSGI_CONNECT_TIMEOUT: ${PANDA_SERVER_CONF_WSGI_CONNECT_TIMEOUT:-5}
       # Proxy (optional)
       http_proxy: ${HTTP_PROXY:-}
       https_proxy: ${HTTPS_PROXY:-}
