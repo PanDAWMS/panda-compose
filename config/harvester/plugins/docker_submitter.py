@@ -24,10 +24,19 @@ is bind-mounted read-only into the worker container. The user's exec can then
 reference the input LFN as a relative path.
 
 The prun source sandbox (jobPars "-a jobO.<uuid>.tar.gz", uploaded by
-PrunScript to the PanDA cache at pandaCacheBase) is fetched and extracted
-into the same /output directory before the container starts, mirroring what
-the runGen transformation does on a real WN. Without it the user's "-p"
-exec (e.g. "./payload.sh") has nothing to run and the container exits 127.
+PrunScript to the PanDA cache) is fetched from the pandaCacheBase queue
+config key and extracted into the same /output directory before the
+container starts, so the user's "-p" exec (e.g. "./payload.sh") has its
+files available under /output.
+
+Design notes: this plugin runs without a pilot (queue config
+"truePilot": false), so it performs the sandbox staging that the runGen
+transformation would do on a real worker node: it fetches the "-a"
+archive from the PanDA cache and extracts it next to the "-p" exec.
+The long-term plan is to migrate to the harvester-native
+AuxExtractor/AnalysisAuxPreparator pipeline, or a real pilot — see
+issue #55 ("DockerSubmitter: replace hand-rolled sandbox staging with
+the harvester-native aux-input pipeline (or pilot mode)").
 
 Queue config example:
 
@@ -40,41 +49,6 @@ Queue config example:
         "rseBaseDir": "/tmp/rucio_rse",
         "pandaCacheBase": "http://panda-server:80/cache"
     }
-
-Design notes (why the sandbox fetch lives here, and what it reimplements):
-
-- On a real worker node the pilot executes the runGen transformation
-  (/var/trf/user/runGen-XX-XX-XX), which downloads the "-a" archive from
-  <sourceURL>/cache/, extracts it, chmods the exec, and runs the "-p"
-  string (runGen.py:310-324, 565). This plugin has no pilot, so it
-  reimplements only that core slice:
-    _get_exec_str      <- runGen's urllib.unquote("-p")
-    _stage_in_sandbox  <- runGen's "getting sandbox" fetch+extract step
-    _chmod_exec_script <- runGen's "chmod +x just in case" step
-  ATLAS-specific runGen machinery (Athena/CMake release setup, the
-  "libraries" tarball, the trf.<uuid>.py wrapper, --fileToLoad/--fileToSave)
-  is deliberately not reimplemented.
-
-- Harvester already ships a sandbox-fetch pipeline: AuxExtractor parses
-  "-a"/"-i" and --sourceURL out of jobPars and AnalysisAuxPreparator
-  HTTP-GETs the archive. It is not used here because (a) these compose
-  queues configure DummyPreparator and no extractor at all, (b)
-  AuxExtractor derives the URL from jobPars' --sourceURL, which
-  PrunScript scopes to the submission client's own PanDA URL
-  (http://localhost:25080 on the submitter host) -- unreachable from the
-  harvester container -- so a queue-config pandaCacheBase is used
-  instead, and (c) the preparator would leave the archive unextracted on
-  a local access path rather than in the worker's /output.
-
-- Only "-a" is handled, not "-i": AuxExtractor switches between them on
-  prodSourceLabel=="user", but these queues run prodSourceLabel=test and
-  only ever receive prun-style submissions, whose source sandbox is "-a".
-
-- Stage-in is best-effort: a missing or unreachable sandbox logs a
-  warning and the job fails at exec time, matching the pre-fix failure
-  mode. Retry semantics stay with harvester (maxSubmissionAttempts in
-  the queue config) rather than duplicating AnalysisAuxPreparator's
-  per-file retry loop.
 """
 
 import hashlib
@@ -216,11 +190,9 @@ class DockerSubmitter(PluginBase):
     def _get_exec_str(self, job, wLog):
         """Return the user's exec string for this job.
 
-        If the task refiner assigned an ATLAS-style URL transformation
-        (http://panda-server:85/trf/user/runGen-XX-XX-XX), the container has no
-        way to fetch and execute it. Extract the user's actual exec string
-        from the -p flag of jobPars (URL-encoded, per the runGen convention),
-        mirroring runGen.py's ``jobParams = urllib.unquote(opt -p)``.
+        URL transformations (e.g. http://.../runGen-XX-XX-XX) are not
+        executable inside the container, so the user's actual exec string
+        is taken from the -p flag of jobPars (URL-encoded).
 
         Otherwise (simple transformation, e.g. "sh") the exec is
         <transformation> <jobPars>.
@@ -253,11 +225,9 @@ class DockerSubmitter(PluginBase):
         """Return the prun sandbox archive name from the job's "-a <name>"
         jobPars entry, or None when the job carries no sandbox.
 
-        PrunScript bakes the uploaded source archive into jobParameters as
-        "-a jobO.<uuid>.tar.gz" (see PrunScript ~line 2239). On a real WN the
-        runGen transformation downloads it from ${SURL}/cache/ and extracts it
-        before exec'ing the user's "-p" payload. This submitter runs "-p"
-        directly, so it must do the download+extract itself.
+        The uploaded source archive is referenced in jobParameters as
+        "-a <name>"; the archive is fetched from the PanDA cache and
+        extracted before the container runs the "-p" exec.
         """
         if not job:
             return None
@@ -276,8 +246,8 @@ class DockerSubmitter(PluginBase):
         """Fetch the prun sandbox from the PanDA cache and extract it into the
         worker's output dir so the container sees its files under /output.
 
-        Best-effort: a missing/unreachable sandbox logs a warning and leaves
-        the job to fail at exec time (same behaviour as before this existed).
+        Best-effort: a missing or unreachable sandbox logs a warning and
+        the job fails at exec time.
         """
         archive_name = self._get_sandbox_name(job, wLog)
         if not archive_name:
@@ -305,8 +275,8 @@ class DockerSubmitter(PluginBase):
                     # Python < 3.11.4 has no filter kwarg
                     tar.extractall(worker_output_host)
             wLog.debug(f"extracted sandbox {archive_name} into {worker_output_host}")
-            # runGen parity: make sure the exec is executable even if the
-            # archive was built on a filesystem that strips mode bits.
+            # Ensure the exec is executable even if the archive does not
+            # carry the exec bit.
             self._chmod_exec_script(job, worker_output_host, wLog)
         except Exception as exc:
             wLog.warning(f"failed to stage in sandbox {archive_name} from {url}: {exc}")
@@ -320,15 +290,11 @@ class DockerSubmitter(PluginBase):
     def _chmod_exec_script(self, job, worker_output_host, wLog):
         """Ensure the exec named by "-p" is executable after extraction.
 
-        runGen.py does ``chmod +x`` on the script "just in case" before
-        exec (runGen.py:565). Archives built on filesystems that do not
-        preserve exec bits would otherwise fail with "Permission denied"
-        even though the file exists. Best-effort, mirrors runGen's
-        behaviour: a missing file is ignored (the exec itself will report
-        it), and the first token of "-p" is only chmodded when it is a
-        plain relative path (runGen chmods ``jobParams.split()[0]``
-        unconditionally; we skip absolute paths, URLs, and command
-        separators to avoid touching anything outside /output).
+        Best-effort: ensures exec works even when the archive does not
+        carry the exec bit. The first token of "-p" is chmodded only when
+        it is a plain relative path present in the output dir; absolute
+        paths, URLs, and variable assignments are skipped, and traversal
+        is refused.
         """
         exec_str = self._get_exec_str(job, wLog)
         tokens = exec_str.split()
@@ -353,7 +319,7 @@ class DockerSubmitter(PluginBase):
             return
         try:
             os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-            wLog.debug(f"chmod +x {path} (runGen parity)")
+            wLog.debug(f"chmod +x {path}")
         except OSError as exc:
             wLog.warning(f"could not chmod +x {path}: {exc}")
 
