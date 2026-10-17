@@ -59,6 +59,7 @@ import tarfile
 import tempfile
 import urllib.request
 import uuid
+from contextlib import suppress
 
 import docker as docker_module
 from pandaharvester.harvestercore import core_utils
@@ -282,10 +283,9 @@ class DockerSubmitter(PluginBase):
             wLog.warning(f"failed to stage in sandbox {archive_name} from {url}: {exc}")
         finally:
             if tmp_path:
-                try:
+                # Cleanup is best-effort; the temp file may be gone already.
+                with suppress(OSError):
                     os.unlink(tmp_path)
-                except Exception:
-                    pass
 
     def _chmod_exec_script(self, job, worker_output_host, wLog):
         """Ensure the exec named by "-p" is executable after extraction.
@@ -359,10 +359,8 @@ class DockerSubmitter(PluginBase):
 
                 # Record the output dir on the workspec for the stager. workAttributes
                 # is a JSON blob persisted with the worker row.
-                try:
+                with suppress(Exception):
                     workSpec.set_work_params({"outputHostDir": worker_output_host})
-                except Exception:
-                    pass
 
                 container_name = f"harvester-worker-{workSpec.workerID}-{uuid.uuid4().hex[:8]}"
 
@@ -402,10 +400,8 @@ class DockerSubmitter(PluginBase):
                 wLog.error(err)
                 retList.append((False, err))
 
-        try:
+        with suppress(Exception):
             client.close()
-        except Exception:
-            pass
 
         tmpLog.debug("done")
         return retList
