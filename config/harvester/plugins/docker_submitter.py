@@ -23,6 +23,21 @@ BEFORE the container starts. This works because the local dev RSE
 is bind-mounted read-only into the worker container. The user's exec can then
 reference the input LFN as a relative path.
 
+The prun source sandbox (jobPars "-a jobO.<uuid>.tar.gz", uploaded by
+PrunScript to the PanDA cache) is fetched from the pandaCacheBase queue
+config key and extracted into the same /output directory before the
+container starts, so the user's "-p" exec (e.g. "./payload.sh") has its
+files available under /output.
+
+Design notes: this plugin runs without a pilot (queue config
+"truePilot": false), so it performs the sandbox staging that the runGen
+transformation would do on a real worker node: it fetches the "-a"
+archive from the PanDA cache and extracts it next to the "-p" exec.
+The long-term plan is to migrate to the harvester-native
+AuxExtractor/AnalysisAuxPreparator pipeline, or a real pilot — see
+issue #55 ("DockerSubmitter: replace hand-rolled sandbox staging with
+the harvester-native aux-input pipeline (or pilot mode)").
+
 Queue config example:
 
     "submitter": {
@@ -31,14 +46,20 @@ Queue config example:
         "containerImage": "alpine:latest",
         "dockerSocket": "unix:///var/run/docker.sock",
         "outputBaseDir": "/tmp/harvester_output",
-        "rseBaseDir": "/tmp/rucio_rse"
+        "rseBaseDir": "/tmp/rucio_rse",
+        "pandaCacheBase": "http://panda-server:80/cache"
     }
 """
 
 import hashlib
 import os
 import shlex
+import stat
+import tarfile
+import tempfile
+import urllib.request
 import uuid
+from contextlib import suppress
 
 import docker as docker_module
 from pandaharvester.harvestercore import core_utils
@@ -69,6 +90,11 @@ class DockerSubmitter(PluginBase):
         # Host-side directory that holds the MOCK-POSIX RSE bytes. Bind-mounted
         # RO into the worker container so the input LFNs (as symlinks) resolve.
         self.rseBaseDir = "/tmp/rucio_rse"
+        # Base URL of the PanDA cache (httpd Alias /cache/ -> pandacache/).
+        # Used to fetch the prun sandbox referenced by the job's "-a <name>"
+        # jobPars entry. Must be a URL reachable from the harvester container;
+        # the default follows the compose-internal panda-server hostname.
+        self.pandaCacheBase = "http://panda-server:80/cache"
         PluginBase.__init__(self, **kwarg)
 
     def _resolve_image(self, job, wLog):
@@ -99,31 +125,7 @@ class DockerSubmitter(PluginBase):
         if not job:
             return ["sh", "-c", "echo 'no job spec available'"], ""
 
-        transformation = job.jobParams.get("transformation", "sh")
-        job_pars = job.jobParams.get("jobPars", "")
-
-        # If the task refiner assigned an ATLAS-style URL transformation
-        # (http://panda-server:85/trf/user/runGen-XX-XX-XX), the container has no
-        # way to fetch and execute it. Extract the user's actual exec string
-        # from the -p flag of jobPars (URL-encoded, per RunGen convention).
-        if transformation.startswith(("http://", "https://")):
-            from urllib.parse import unquote_plus
-            exec_str = ""
-            parts = shlex.split(job_pars) if job_pars else []
-            for i, p in enumerate(parts):
-                if p == "-p" and i + 1 < len(parts):
-                    exec_str = unquote_plus(parts[i + 1])
-                    break
-            if not exec_str:
-                exec_str = "echo 'no exec string found in jobPars'"
-            wLog.debug(f"URL transformation; extracted exec_str={exec_str!r}")
-        else:
-            # Simple transformation (e.g. "sh") + argv from jobPars.
-            if job_pars:
-                # Reconstruct a shell string: <trans> <arg1> <arg2> ...
-                exec_str = transformation + " " + job_pars
-            else:
-                exec_str = transformation
+        exec_str = self._get_exec_str(job, wLog)
 
         # Expand %IN placeholders using the same LFN list we symlinked in.
         in_files_str = (job.jobParams.get("inFiles") or "").strip()
@@ -186,6 +188,141 @@ class DockerSubmitter(PluginBase):
             except OSError as exc:
                 wLog.warning(f"could not symlink {src} to {dst}: {exc}")
 
+    def _get_exec_str(self, job, wLog):
+        """Return the user's exec string for this job.
+
+        URL transformations (e.g. http://.../runGen-XX-XX-XX) are not
+        executable inside the container, so the user's actual exec string
+        is taken from the -p flag of jobPars (URL-encoded).
+
+        Otherwise (simple transformation, e.g. "sh") the exec is
+        <transformation> <jobPars>.
+        """
+        if not job:
+            return "echo 'no job spec available'"
+        transformation = job.jobParams.get("transformation", "sh")
+        job_pars = job.jobParams.get("jobPars", "")
+
+        if transformation.startswith(("http://", "https://")):
+            from urllib.parse import unquote_plus
+
+            exec_str = ""
+            parts = shlex.split(job_pars) if job_pars else []
+            for i, p in enumerate(parts):
+                if p == "-p" and i + 1 < len(parts):
+                    exec_str = unquote_plus(parts[i + 1])
+                    break
+            if not exec_str:
+                exec_str = "echo 'no exec string found in jobPars'"
+            wLog.debug(f"URL transformation; extracted exec_str={exec_str!r}")
+            return exec_str
+
+        if job_pars:
+            # Reconstruct a shell string: <trans> <arg1> <arg2> ...
+            return transformation + " " + job_pars
+        return transformation
+
+    def _get_sandbox_name(self, job, wLog):
+        """Return the prun sandbox archive name from the job's "-a <name>"
+        jobPars entry, or None when the job carries no sandbox.
+
+        The uploaded source archive is referenced in jobParameters as
+        "-a <name>"; the archive is fetched from the PanDA cache and
+        extracted before the container runs the "-p" exec.
+        """
+        if not job:
+            return None
+        job_pars = (job.jobParams or {}).get("jobPars", "") or ""
+        try:
+            parts = shlex.split(job_pars)
+        except ValueError:
+            wLog.warning(f"could not shlex-split jobPars for sandbox lookup: {job_pars!r}")
+            return None
+        for i, p in enumerate(parts):
+            if p == "-a" and i + 1 < len(parts):
+                return parts[i + 1]
+        return None
+
+    def _stage_in_sandbox(self, job, worker_output_host, wLog):
+        """Fetch the prun sandbox from the PanDA cache and extract it into the
+        worker's output dir so the container sees its files under /output.
+
+        Best-effort: a missing or unreachable sandbox logs a warning and
+        the job fails at exec time.
+        """
+        archive_name = self._get_sandbox_name(job, wLog)
+        if not archive_name:
+            wLog.debug("no -a sandbox in jobPars; skipping sandbox stage-in")
+            return
+        # Only accept a bare filename: the value comes from the task's
+        # jobParameters and must never turn into an arbitrary URL/path fetch.
+        if "/" in archive_name or archive_name.startswith(("http://", "https://")):
+            wLog.warning(f"unexpected sandbox name {archive_name!r}; skipping sandbox stage-in")
+            return
+        url = f"{self.pandaCacheBase.rstrip('/')}/{archive_name}"
+        tmp_path = None
+        try:
+            wLog.debug(f"fetching sandbox {url}")
+            with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
+                tmp_path = tmp.name
+                with urllib.request.urlopen(url, timeout=60) as resp:
+                    tmp.write(resp.read())
+            with tarfile.open(tmp_path) as tar:
+                # filter= guards against path traversal outside the dest
+                # (Python >= 3.12 default; explicit for older versions).
+                try:
+                    tar.extractall(worker_output_host, filter="data")
+                except TypeError:
+                    # Python < 3.11.4 has no filter kwarg
+                    tar.extractall(worker_output_host)
+            wLog.debug(f"extracted sandbox {archive_name} into {worker_output_host}")
+            # Ensure the exec is executable even if the archive does not
+            # carry the exec bit.
+            self._chmod_exec_script(job, worker_output_host, wLog)
+        except Exception as exc:
+            wLog.warning(f"failed to stage in sandbox {archive_name} from {url}: {exc}")
+        finally:
+            if tmp_path:
+                # Cleanup is best-effort; the temp file may be gone already.
+                with suppress(OSError):
+                    os.unlink(tmp_path)
+
+    def _chmod_exec_script(self, job, worker_output_host, wLog):
+        """Ensure the exec named by "-p" is executable after extraction.
+
+        Best-effort: ensures exec works even when the archive does not
+        carry the exec bit. The first token of "-p" is chmodded only when
+        it is a plain relative path present in the output dir; absolute
+        paths, URLs, and variable assignments are skipped, and traversal
+        is refused.
+        """
+        exec_str = self._get_exec_str(job, wLog)
+        tokens = exec_str.split()
+        if not tokens:
+            return
+        script = tokens[0]
+        # Skip tokens that cannot be a sandbox file: absolute paths and
+        # URLs point outside /output, "-*" are flags, "*=*" are variable
+        # assignments, and builtins (echo, sh, ...) are not files at all
+        # (caught by the isfile check below).
+        if script.startswith(("/", "-")) or "://" in script or "=" in script:
+            return
+        # Normalize "./payload.sh" -> "payload.sh"; refuse traversal.
+        script = os.path.normpath(script)
+        if script == "." or script.startswith(".."):
+            return
+        path = os.path.join(worker_output_host, script)
+        if not os.path.isfile(path):
+            # The exec may reference a file that the payload itself will
+            # generate, or an interpreter (e.g. "sh script.sh"); nothing
+            # to do.
+            return
+        try:
+            os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            wLog.debug(f"chmod +x {path}")
+        except OSError as exc:
+            wLog.warning(f"could not chmod +x {path}: {exc}")
+
     def submit_workers(self, workspec_list):
         tmpLog = self.make_logger(baseLogger, method_name="submit_workers")
         tmpLog.debug(f"start nWorkers={len(workspec_list)}")
@@ -216,13 +353,14 @@ class DockerSubmitter(PluginBase):
 
                 # Stage inputs BEFORE launching the container.
                 self._stage_in_inputs(job, worker_output_host, wLog)
+                # Stage the prun sandbox (-a jobO.*.tar.gz) the same way, so
+                # the user's "./payload.sh" (from -p) actually exists in /output.
+                self._stage_in_sandbox(job, worker_output_host, wLog)
 
                 # Record the output dir on the workspec for the stager. workAttributes
                 # is a JSON blob persisted with the worker row.
-                try:
+                with suppress(Exception):
                     workSpec.set_work_params({"outputHostDir": worker_output_host})
-                except Exception:
-                    pass
 
                 container_name = f"harvester-worker-{workSpec.workerID}-{uuid.uuid4().hex[:8]}"
 
@@ -262,10 +400,8 @@ class DockerSubmitter(PluginBase):
                 wLog.error(err)
                 retList.append((False, err))
 
-        try:
+        with suppress(Exception):
             client.close()
-        except Exception:
-            pass
 
         tmpLog.debug("done")
         return retList
