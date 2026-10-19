@@ -207,9 +207,6 @@ datasets:
 waiting → defined → ready → running → done
 ```
 
-A task typically completes in 3–8 minutes (the same stages as the job
-lifecycle, plus ContentsFeeder and post-processing passes).
-
 ## CI
 
 A GitHub Actions smoke-test workflow (`.github/workflows/ci.yml`) starts the full stack
