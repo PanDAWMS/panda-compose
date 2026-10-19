@@ -2,7 +2,9 @@
   "panda-compose-local.template": {
     "isTemplateQueue": true,
     "prodSourceLabel": "test",
-    "prodSourceLabelRandomWeightsPermille": {"test": 1000},
+    "prodSourceLabelRandomWeightsPermille": {
+      "test": 1000
+    },
     "nQueueLimitWorker": 100,
     "nQueueLimitJob": 10,
     "nQueueLimitJobRatio": 10,
@@ -25,7 +27,8 @@
       "containerImage": "alpine:latest",
       "dockerSocket": "unix:///var/run/docker.sock",
       "outputBaseDir": "/tmp/harvester_output",
-      "rseBaseDir": "/tmp/rucio_rse"
+      "rseBaseDir": "/tmp/rucio_rse",
+      "pandaCacheBase": "http://panda-server:80/cache"
     },
     "workerMaker": {
       "name": "SimpleWorkerMaker",
