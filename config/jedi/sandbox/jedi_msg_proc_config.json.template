@@ -24,7 +24,7 @@
             "server": "iDDS_mb",
             "destination": "/queue/idds_panda"
         },
-        "jedi_taskstatus": {
+        "jedi_jobtaskstatus": {
             "server": "internal_mb",
             "destination": "/queue/self.jedi_taskstatus"
         },
@@ -53,6 +53,7 @@
     },
     "processors": {
         "atlas-idds": {
+            "enable": false,
             "module": "pandajedi.jedimsgprocessor.atlas_idds_msg_processor",
             "name": "AtlasIddsMsgProcPlugin",
             "in_queue": "idds",
@@ -62,7 +63,7 @@
         "push_task_status": {
             "module": "pandajedi.jedimsgprocessor.forwarding_msg_processor",
             "name": "ForwardingMsgProcPlugin",
-            "in_queue": "jedi_taskstatus",
+            "in_queue": "jedi_jobtaskstatus",
             "out_queue": "to-idds",
             "verbose": true
         },

@@ -10,7 +10,7 @@
         }
     },
     "queues": {
-        "jedi_taskstatus": {
+        "jedi_jobtaskstatus": {
             "server": "internal_mb",
             "destination": "/queue/self.jedi_taskstatus"
         },
