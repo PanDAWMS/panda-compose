@@ -176,6 +176,40 @@ python3 scripts/pandajob-kill $JOB_ID
 
 Exits 0 even if the job is already in a terminal state.
 
+## Submitting and managing JEDI tasks
+
+The wrapper scripts exercise the direct-job path, which bypasses JEDI. To run
+work through the JEDI *task* pipeline (as `prun` does), submit a task with
+`panda-client` and set three flags that the dev stack requires:
+
+```bash
+prun --site PANDA_COMPOSE_LOCAL --noBuild \
+     --exec "./payload.sh" \
+     --outDS user.<nickname>.<name>.<tag> \
+     --outputs myout.txt \
+     --nJobs 1 \
+     --vo epic \
+     --prodSourceLabel test \
+     --workingGroup EIC
+```
+
+| Flag | Why it is required |
+|---|---|
+| `--vo epic` | The stack's JEDI config is hardcoded to the `epic` VO |
+| `--prodSourceLabel test` | `setup-queue.sh` seeds the work queue for `test` tasks only; the `user` default fails refinement with `workqueue is undefined` |
+| `--workingGroup EIC` | Sets the task `cloud`, which skips TaskBrokerage. Without it the task enters `assigning` and stays there: the broker serves `atlas:managed` only, so nothing completes the assignment |
+
+The payload runs through the same containerized worker as direct jobs. The
+task completes with `done` once JEDI's post-processing closes the output
+datasets:
+
+```
+waiting → defined → ready → running → done
+```
+
+A task typically completes in 3–8 minutes (the same stages as the job
+lifecycle, plus ContentsFeeder and post-processing passes).
+
 ## CI
 
 A GitHub Actions smoke-test workflow (`.github/workflows/ci.yml`) starts the full stack
