@@ -115,8 +115,9 @@ Uses `ghcr.io/pandawms/panda-jedi:latest`. JEDI runs several daemons:
 
 - **JediMaster** — process supervisor
 - **JobGenerator** — activates `defined` jobs → `activated`
-- **TaskBroker** — assigns tasks to sites (may crash on startup due to an argument-order
-  bug in `GenJobBroker.__init__`; non-fatal for direct job submission)
+- **TaskBroker** — assigns unclouded tasks to sites; instantiated only for
+  `atlas:managed` by the config, so `epic` tasks must carry a cloud
+  (`--workingGroup`) to skip brokerage and run
 - **WatchDog**, **PostProcessor**, etc.
 
 JEDI depends on the `init` service completing successfully to ensure the

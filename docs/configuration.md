@@ -57,6 +57,15 @@ a `global_shares` row for the `epic` VO / `PANDA_TASK_LABEL`; without both, the
 TaskRefiner fails with `workqueue is undefined` and the task never leaves
 `waiting`.
 
+The seeded work queue matches only tasks whose `prodSourceLabel` equals
+`PANDA_TASK_LABEL`, so submissions must pass `--prodSourceLabel test` (or
+whatever value the variable was changed to). Submissions must also set the
+task cloud — `prun --workingGroup EIC` — because `GenTaskRefiner` copies
+`workingGroup` into `cloud` when no explicit cloud is given, and tasks without
+a cloud are routed to TaskBrokerage (`assigning`), which has no broker
+configured for `epic` in this stack. See README "Submitting and managing JEDI
+tasks" for a worked example.
+
 ### Proxies
 
 If you are behind a corporate proxy, set `HTTP_PROXY` and `HTTPS_PROXY` in `.env`.
