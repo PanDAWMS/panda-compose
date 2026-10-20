@@ -47,11 +47,11 @@
             "server": "panda_mb",
             "destination": "/queue/panda_jedi"
         },
-        "panda_pilot_queue_1": {
+        "panda_pilot_queue": {
             "server": "pilot_mb",
             "destination": "/queue/panda_pilot"
         },
-        "panda_pilot_topic_1": {
+        "panda_pilot_topic": {
             "server": "pilot_mb",
             "destination": "/topic/panda_pilot"
         }
