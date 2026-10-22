@@ -42,7 +42,10 @@ dumps the Configurator actually reads are generated at runtime.
 
 For extra compute queues, you normally do **not** edit these files — set
 `PANDA_QUEUES` (see `docs/configuration.md`) and `render-cric.py` clones the
-template entry for each queue automatically.
+template entry for each queue automatically. Likewise, extra DDM endpoints for
+RSEs owned by the stack's consumer (e.g. a data agent's upload RSE) are attached
+via `PANDA_CRIC_EXTRA_ENDPOINTS` rather than added here — see
+`docs/configuration.md`.
 
 To change the shared shape of every rendered queue, edit the single
 `PANDA_COMPOSE_LOCAL` template entry in place (the renderer only ever reads that

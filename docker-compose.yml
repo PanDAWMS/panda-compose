@@ -190,6 +190,12 @@ services:
       # Queues to render into the CRIC dumps (see render-cric.py). Keep in sync
       # with the init service so every schedconfig queue is a full CRIC site.
       PANDA_QUEUES: ${PANDA_QUEUES:-PANDA_COMPOSE_LOCAL}
+      # Extra DDM endpoints to attach to the compose site in the rendered CRIC
+      # dumps (JSON object keyed by endpoint name, see render-cric.py). Used by
+      # consumers whose data lands on a dedicated RSE (e.g. a data agent
+      # uploading to DAQ_DISK_3) so job brokerage classifies those replicas as
+      # local. Empty keeps the shipped dumps unchanged.
+      PANDA_CRIC_EXTRA_ENDPOINTS: ${PANDA_CRIC_EXTRA_ENDPOINTS:-}
       # JEDI's DDM client (rucio-clients) needs a client config to reach Rucio;
       # without it, task refine fails with rucio ConfigNotFound on listDatasets.
       RUCIO_HOME: /opt/rucio
