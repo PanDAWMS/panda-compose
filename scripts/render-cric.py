@@ -24,6 +24,15 @@ TEMPLATE_QUEUE = os.environ.get("PANDA_CRIC_TEMPLATE_QUEUE", "PANDA_COMPOSE_LOCA
 SRC = os.environ.get("PANDA_CRIC_TEMPLATE_DIR", "/etc/panda/cric-templates")
 OUT = os.environ.get("PANDA_CRIC_OUTPUT_DIR", "/etc/panda/cric")
 
+# Extra DDM endpoints to attach to the compose site, as a JSON object keyed by
+# endpoint name, e.g. PANDA_CRIC_EXTRA_ENDPOINTS='{"DAQ_DISK_3": {"token": "DAQ",
+# "type": "OS_LOGS"}}'. The RSEs behind such endpoints are typically created by
+# the consumer of the stack (e.g. a data agent uploading to a dedicated RSE),
+# which is why they are supplied via env and not baked into the shipped dumps.
+# Endpoint names missing from the template's astorages are appended there (both
+# read_lan and write_lan) so every rendered queue reads/writes them as local.
+EXTRA_ENDPOINTS_RAW = os.environ.get("PANDA_CRIC_EXTRA_ENDPOINTS", "")
+
 # Fields that identify the queue itself. atlas_site / site_name are deliberately
 # NOT rekeyed: all queues stay on the single template site so storage is local.
 NAME_FIELDS = ("panda_queue", "nickname", "panda_resource")
@@ -39,10 +48,26 @@ def write(name, obj):
         json.dump(obj, fh, indent=2)
 
 
+def load_extra_endpoints():
+    if not EXTRA_ENDPOINTS_RAW:
+        return {}
+    try:
+        extra = json.loads(EXTRA_ENDPOINTS_RAW)
+    except ValueError as e:
+        raise SystemExit(f"PANDA_CRIC_EXTRA_ENDPOINTS is not valid JSON: {e}")
+    if not isinstance(extra, dict):
+        raise SystemExit("PANDA_CRIC_EXTRA_ENDPOINTS must be a JSON object keyed by endpoint name")
+    for name, spec in extra.items():
+        if not isinstance(spec, dict) or not all(k in spec for k in ("token", "type")):
+            raise SystemExit(f"PANDA_CRIC_EXTRA_ENDPOINTS entry {name!r} needs 'token' and 'type'")
+    return extra
+
+
 def main():
     queues = [
         q for q in os.environ.get("PANDA_QUEUES", TEMPLATE_QUEUE).replace(",", " ").split() if q
     ]
+    extra_endpoints = load_extra_endpoints()
 
     os.makedirs(OUT, exist_ok=True)
 
@@ -50,6 +75,11 @@ def main():
     # (and astorages), so each queue's storage resolves as local.
     sched = load("schedconfig.json")
     sched_tmpl = sched[TEMPLATE_QUEUE]
+    if extra_endpoints:
+        astorages = sched_tmpl.setdefault("astorages", {})
+        for role in ("read_lan", "write_lan"):
+            endpoints = astorages.setdefault(role, [])
+            endpoints.extend(e for e in extra_endpoints if e not in endpoints)
     new_sched = {}
     for q in queues:
         entry = copy.deepcopy(sched_tmpl)
@@ -61,17 +91,34 @@ def main():
 
     # Single site hosting every queue as a PanDA resource. presources is keyed
     # panda_resource -> panda_queue; list all queues so each maps to this site
-    # (and thus to its local MOCK-POSIX storage).
+    # (and thus to its local storage endpoints).
     sites = load("sites.json")
     site = copy.deepcopy(sites[TEMPLATE_QUEUE])
     site["presources"] = {q: {q: {"state": "ACTIVE"}} for q in queues}
+    if extra_endpoints:
+        site_ddm = site.setdefault("ddmendpoints", {})
+        for name in extra_endpoints:
+            site_ddm.setdefault(name, {"state": "ACTIVE"})
     write("sites.json", {TEMPLATE_QUEUE: site})
 
-    # DDM endpoints and blacklist are shared across all local queues.
-    write("ddmendpoints.json", load("ddmendpoints.json"))
+    # DDM endpoints and blacklist are shared across all local queues. Extra
+    # endpoints are merged into ddmendpoints.json attached to the compose site.
+    ddm = load("ddmendpoints.json")
+    for name, spec in extra_endpoints.items():
+        ddm[name] = {
+            "state": "ACTIVE",
+            "token": spec["token"],
+            "site": TEMPLATE_QUEUE,
+            "type": spec["type"],
+            "is_tape": spec.get("is_tape", False),
+        }
+    write("ddmendpoints.json", ddm)
     write("ddmblacklist.json", load("ddmblacklist.json"))
 
-    print(f"Rendered CRIC dumps for {len(queues)} queue(s): {', '.join(queues)}")
+    msg = f"Rendered CRIC dumps for {len(queues)} queue(s): {', '.join(queues)}"
+    if extra_endpoints:
+        msg += f"; extra endpoints: {', '.join(sorted(extra_endpoints))}"
+    print(msg)
 
 
 if __name__ == "__main__":

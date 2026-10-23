@@ -135,6 +135,22 @@ the harvester (`render-panda-queues.py`) and the PanDA schedconfig registration
 (`scripts/setup-queue.sh`), so the two stay in sync. Queues needing a different
 plugin set still require editing `panda_queues.template.json`.
 
+## Extra DDM endpoints
+
+JEDI's job brokerage only classifies input replicas as local when their RSE
+resolves to a DDM endpoint of the queue's site. If a consumer of the stack puts
+data on a dedicated RSE (e.g. a data agent uploading to `DAQ_DISK_3`), map that
+RSE with `PANDA_CRIC_EXTRA_ENDPOINTS` — a JSON object keyed by endpoint name:
+
+```
+PANDA_CRIC_EXTRA_ENDPOINTS={"DAQ_DISK_3": {"token": "DAQ", "type": "OS_LOGS"}}
+```
+
+At startup `render-cric.py` attaches each endpoint to the compose site (local,
+order-1 read+write for every rendered queue). Without the mapping, tasks that
+take `--inDS` inputs from such an RSE generate jobs whose input files stay
+`unknown` and never activate. Unset (or empty) keeps the shipped dumps unchanged.
+
 ## Ports
 
 | Port | Service | Protocol | Purpose |
