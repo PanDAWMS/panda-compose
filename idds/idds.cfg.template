@@ -1,0 +1,32 @@
+# iDDS configuration template for the compose stack (rendered by the
+# entrypoint from IDDS_* environment variables).
+#
+# Serves the synchronous workflow_task create path: the REST app records
+# requests/transforms/processings in the compose postgres and submits to
+# PanDA via panda-client (PANDA_URL from the environment).
+
+[common]
+loglevel = ${IDDS_LOG_LEVEL}
+num_threads = 8
+
+[database]
+# schema must match setup-queue.sh (doma_idds, owned by the panda role)
+schema = ${IDDS_DB_SCHEMA}
+default = ${IDDS_DB_URL}
+pool_size = 10
+pool_recycle = 3600
+echo = 0
+pool_reset_on_return = rollback
+
+[rest]
+host = ${IDDS_REST_HOST}
+cacher_dir = /var/log/idds
+
+[main]
+# Only the REST service runs in the compose stack; the agent chain
+# (clerk, transformer, submitter, ...) is not needed for the
+# create_workflow_task path, which submits to PanDA synchronously.
+agents =
+
+[eventbus]
+backend = default

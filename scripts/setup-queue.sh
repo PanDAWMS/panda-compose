@@ -134,7 +134,7 @@ echo "resource_types seeded."
 #   - global_shares: at least one row is required or WorkQueueMapper crashes in
 #     get_share_for_task (re.match(None, ...)) and refine raises
 #     "task definition does not match any global share".
-echo "Seeding JEDI work queue and global share for vo=${PANDA_TASK_VO} label=${PANDA_TASK_LABEL}..."
+echo "Seeding JEDI work queue and global share for vo=${PANDA_TASK_VO} label=${PANDA_TASK_LABEL}... "
 psql -v ON_ERROR_STOP=1 << ENDOFSQL
 INSERT INTO doma_panda.jedi_work_queue
   (queue_id, queue_name, queue_type, vo, status, queue_order, queue_function)
@@ -145,8 +145,29 @@ INSERT INTO doma_panda.global_shares
   (name, value, parent, prodsourcelabel, vo, throttled)
 VALUES ('Test', 100, NULL, '${PANDA_TASK_LABEL}', '${PANDA_TASK_VO}', '0')
 ON CONFLICT DO NOTHING;
+
+-- iDDS workflow tasks: the iDDS prompt handler hardcodes
+-- prodSourceLabel='managed' in the workflow-task create path (as of idds
+-- 2.6.21; re-verify on upgrade). Seed the matching work-queue /
+-- global-share rows so the TaskRefiner accepts them.
+INSERT INTO doma_panda.jedi_work_queue
+  (queue_id, queue_name, queue_type, vo, status, queue_order, queue_function)
+VALUES (101, 'default_${PANDA_TASK_VO}_managed', 'managed', '${PANDA_TASK_VO}', 'active', 1, 'Resource')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO doma_panda.global_shares
+  (name, value, parent, prodsourcelabel, vo, throttled)
+VALUES ('Managed', 100, NULL, 'managed', '${PANDA_TASK_VO}', '0')
+ON CONFLICT DO NOTHING;
 ENDOFSQL
 echo "JEDI work queue and global share seeded."
+
+# Step 1d-2: schema for the iDDS REST service. The iDDS container's
+# entrypoint creates the tables from the ORM metadata (the upstream SQL
+# dump has drifted from the ORM); this only lays out the schema itself,
+# owned by the PanDA role, matching the PanDA schemas' ownership.
+psql -v ON_ERROR_STOP=1 -c "CREATE SCHEMA IF NOT EXISTS doma_idds AUTHORIZATION ${PANDA_DB_USER}"
+echo "iDDS schema created (if absent)."
 
 # Step 1e: schedule PanDA's pg_cron maintenance jobs and point them at loopback.
 # The image's panda_db_init.sh is supposed to apply post_step_cron.sql on first

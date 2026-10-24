@@ -250,6 +250,49 @@ services:
       PANDA_TASK_LABEL: ${PANDA_TASK_LABEL:-test}
 
   # ────────────────────────────────────────────────────────────────
+  # iDDS — REST service for workflow task creation.
+  # Exposes POST /workflow_task: records iDDS requests/transforms/
+  # processings in the postgres (doma_idds schema) and submits the PanDA
+  # task synchronously via panda-client. Used by the SWF panda-workers
+  # transceiver (message or REST mode). Schema bootstrap is idempotent
+  # and runs in the entrypoint, so re-ups are no-ops.
+  # ────────────────────────────────────────────────────────────────
+  idds:
+    build: ./idds
+    image: pandawms/idds-compose:dev
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      panda-server:
+        condition: service_healthy
+    environment:
+      IDDS_DB_URL: postgresql://${PANDA_DB_USER:-panda}:${PANDA_DB_PASSWORD:-panda_secret}@postgres:5432/${PANDA_DB_NAME:-panda_db}
+      IDDS_DB_SCHEMA: doma_idds
+      IDDS_REST_HOST: http://idds:443/idds
+      IDDS_AUTH_CONFIG: /etc/idds/auth/auth.cfg
+      # Dev-stack identity: the wsgi middleware injects it as the client DN
+      # for every caller (the trusted-TLS-proxy model; see idds/Dockerfile).
+      # Must match allow_users in idds/auth.cfg.
+      IDDS_DEV_DN: /CN=idds/O=Dev/C=CH
+      # insertTaskParams posts to baseURLSSL, so the SSL URL must also be
+      # plain HTTP here: panda-server's compose deployment is HTTP-only and
+      # the iDDS client verifies nothing anyway (upstream verify=False).
+      PANDA_URL: ${PANDA_URL:-http://panda-server:80/server/panda}
+      PANDA_URL_SSL: ${PANDA_URL:-http://panda-server:80/server/panda}
+      PANDACACHE_URL: ${PANDA_URL:-http://panda-server:80/server/panda}
+    volumes:
+      - ./idds/auth.cfg:/etc/idds/auth/auth.cfg:ro
+    ports:
+      - "25444:443"   # iDDS REST (host 25444 → container 443)
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:443/ping')\" || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  # ────────────────────────────────────────────────────────────────
   # Harvester — resource-facing pilot submission service.
   # Runs subprocess_submitter / subprocess_monitor plugins (mounted
   # from ./scripts/) so jobs execute as local subprocesses with no
