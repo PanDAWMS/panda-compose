@@ -76,11 +76,19 @@ def main():
         command.stamp(alembic_config(engine), 'head')
         print('fresh schema: created from ORM metadata, alembic stamped at head')
     elif not has_version:
-        # no-op for existing tables, creates anything missing; the schema
-        # came from create_all, so it matches the ORM and needs no
-        # migrations - just record the version.
+        # no-op for existing tables, creates anything missing. The stamp
+        # below assumes those tables came from create_all of the SAME idds
+        # version as this image - which does not hold if the image was
+        # bumped between the crashed start and this recovery (create_all
+        # never alters existing tables, so the stamp would skip migrations
+        # they need). Unlikely in a dev stack; if it ever bites, wipe the
+        # doma_idds schema (it holds no user state in this deployment) and
+        # let the fresh-schema branch rebuild it.
         models.BASE.metadata.create_all(engine)
         command.stamp(alembic_config(engine), 'head')
+        print('WARNING: unversioned schema stamped at head; if the idds '
+              'version changed since these tables were created, drop the '
+              f'{DEFAULT_SCHEMA_NAME} schema and restart to rebuild it')
         print('unversioned schema: create_all no-op + alembic stamped at head')
     else:
         # applies only migrations newer than the recorded version
