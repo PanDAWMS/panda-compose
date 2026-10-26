@@ -25,6 +25,7 @@ graph TD
         init[/init\none-shot/]
         server[panda-server\nREST API / httpd]
         jedi[panda-jedi\nworkload manager]
+        idds[idds\nworkflow task REST]
         harvester[harvester\nsubprocess jobs]
     end
 
@@ -40,7 +41,10 @@ graph TD
 
     harvester <-->|REST API| server
     harvester -->|upload output| rucio
+    idds      -->|insertTaskParams| server
+    idds      -.->|doma_idds schema| postgres
     client    -->|"http://localhost:25080"| server
+    client    -->|"http://localhost:25444"| idds
 ```
 
 ## Service dependency order
@@ -147,10 +151,60 @@ The `init` service runs `scripts/setup-queue.sh` once after `postgres` and
 3. Creates the `atlas_panda` schema with 261 VIEWs over `doma_panda` tables
 4. Seeds `resource_types` (`SCORE`), and a `jedi_work_queue` + `global_shares`
    row for the `epic` VO / `PANDA_TASK_LABEL` — required for the JEDI task path
-   (see below); direct job submission does not need them
+   (see below); direct job submission does not need them. A second
+   `epic`/`managed` pair is seeded for iDDS workflow tasks: the iDDS prompt
+   handler hardcodes `prodSourceLabel='managed'` in its create path (as of
+   iDDS 2.6.21; re-verify on upgrade)
+5. Creates the `doma_idds` schema (owned by the PanDA role) for the iDDS
+   service; the iDDS container's entrypoint creates its tables from the ORM
+   metadata on first start
 
 `panda-jedi` has `depends_on: init: service_completed_successfully`, so it will not
 start until the init container exits 0.
+
+### idds — workflow task creation (iDDS REST)
+
+The `idds` service is a lean iDDS REST service (`idds/` build context, packages
+from PyPI at the version matching panda-server's bundled client) exposing
+`POST /workflow_task`. The handler records iDDS requests/transforms/processings
+in the compose postgres (`doma_idds` schema) and submits the PanDA task
+synchronously via panda-client — the same `insertTaskParams` path as
+`panda_api.submit_task`. This is the entry point used by the SWF panda-workers
+transceiver (message or REST mode) to create worker tasks per run.
+
+Only the REST service runs; iDDS's agent chain (clerk, transformer, submitter,
+...) is unnecessary for the *create* path. Schema bootstrap in the entrypoint
+is idempotent (fresh schema: ORM `create_all` + alembic stamp; existing
+schema: `alembic upgrade head`), so warm `docker compose up` is a no-op.
+
+**Lifecycle commands are recorded, not executed.** In 2.6.21
+`close_workflow_task` only marks processings `ToCancel` and `adjust_worker`
+only writes `transform_metadata`; both rely on the carrier agent to act on
+them ("the carrier agent will detect ToCancel and close the PanDA task"),
+and that agent does not run here. The same applies to `abort`/`retry`
+commands. Callers get HTTP 200, but the PanDA task is never closed or
+adjusted through this path — swf-panda-workers in REST mode must not assume
+tasks were closed. (The iDDS records are still correct: a later deployment
+of the agent chain would pick the commands up.)
+
+**Create is not idempotent.** The iDDS request/transform/processing rows
+are committed before the PanDA submission is attempted, and the REST layer
+raises (5xx) only when the submission failed. A caller retrying a failed
+create therefore inserts a *second* set of rows under a new request_id —
+and once the per-run transform fix lands upstream, may also hit the
+`TRANSFORMS_NAME_UQ` constraint for the same run. Retries should be
+driven by the `run_id` ↔ task mapping (query first), not by blind
+re-submission.
+
+**Auth model (dev stack).** In production httpd terminates TLS and exports
+the client certificate DN as `SSL_CLIENT_S_DN` in the WSGI environ. This
+stack serves plain HTTP, so the wsgi middleware (see `idds/Dockerfile`)
+injects `IDDS_DEV_DN` as the client DN for *every* request: iDDS reads the
+environ before any client-supplied `SSL-CLIENT-S-DN` header, so every caller
+is authenticated as the dev identity — which is a `super_user` in
+`idds/auth.cfg`. The service is therefore effectively unauthenticated and
+publishes its port on loopback only (`127.0.0.1:25444`); a deployment behind
+real TLS leaves `IDDS_DEV_DN` unset, and the header path applies again.
 
 ### pg_cron maintenance jobs
 

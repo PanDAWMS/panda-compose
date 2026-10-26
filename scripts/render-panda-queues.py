@@ -16,8 +16,13 @@ TEMPLATE_NAME = "panda-compose-local.template"
 def concrete_queue():
     return {
         "queueStatus": "online",
-        "prodSourceLabel": "test",
-        "prodSourceLabelRandomWeightsPermille": {"test": 1000},
+        # 'managed' so the harvester fetches jobs from iDDS workflow tasks,
+        # which the iDDS prompt handler submits with prodSourceLabel=managed
+        # (hardcoded there as of idds 2.6.21). The fetch also matches
+        # test/prod_test/install, so direct jobs submitted with the test
+        # label keep flowing.
+        "prodSourceLabel": "managed",
+        "prodSourceLabelRandomWeightsPermille": {"managed": 1000},
         "templateQueueName": TEMPLATE_NAME,
         "maxWorkers": 10,
         "maxNewWorkersPerCycle": 5,
