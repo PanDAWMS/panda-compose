@@ -81,14 +81,19 @@ def main():
         # version as this image - which does not hold if the image was
         # bumped between the crashed start and this recovery (create_all
         # never alters existing tables, so the stamp would skip migrations
-        # they need). Unlikely in a dev stack; if it ever bites, wipe the
-        # doma_idds schema (it holds no user state in this deployment) and
-        # let the fresh-schema branch rebuild it.
+        # they need). Unlikely in a dev stack; if it ever bites, drop and
+        # re-create the schema (it holds only bookkeeping - the run_id to
+        # request/transform/task mapping - no file state) and restart:
+        #   DROP SCHEMA doma_idds CASCADE;
+        #   CREATE SCHEMA doma_idds AUTHORIZATION panda;
+        # The has_schema check below exits when the schema is absent, so
+        # dropping without re-creating crash-loops until init runs again.
         models.BASE.metadata.create_all(engine)
         command.stamp(alembic_config(engine), 'head')
         print('WARNING: unversioned schema stamped at head; if the idds '
-              'version changed since these tables were created, drop the '
-              f'{DEFAULT_SCHEMA_NAME} schema and restart to rebuild it')
+              'version changed since these tables were created, recreate '
+              'the schema (DROP SCHEMA doma_idds CASCADE; CREATE SCHEMA '
+              'doma_idds AUTHORIZATION panda;) and restart to rebuild it')
         print('unversioned schema: create_all no-op + alembic stamped at head')
     else:
         # applies only migrations newer than the recorded version
