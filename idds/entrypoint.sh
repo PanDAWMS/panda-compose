@@ -18,7 +18,10 @@ vals = {
     'IDDS_LOG_LEVEL': os.environ.get('IDDS_LOG_LEVEL', 'INFO'),
 }
 for key, val in vals.items():
-    tpl = tpl.replace('${%s}' % key, val)
+    # iDS reads the rendered file with configparser, which applies
+    # BasicInterpolation: a literal % (e.g. a URL-encoded password) must be
+    # doubled or ConfigParser raises InterpolationSyntaxError at import.
+    tpl = tpl.replace('${%s}' % key, val.replace('%', '%%'))
 if '${' in tpl:
     # any unresolved placeholder means misconfiguration, fail loudly
     import re

@@ -173,12 +173,29 @@ synchronously via panda-client — the same `insertTaskParams` path as
 transceiver (message or REST mode) to create worker tasks per run.
 
 Only the REST service runs; iDDS's agent chain (clerk, transformer, submitter,
-...) is unnecessary for this path. Schema bootstrap in the entrypoint is
-idempotent (ORM `create_all` + alembic stamp), so warm `docker compose up` is a
-no-op. The stack has no grid certificates: callers authenticate with the
-`SSL-CLIENT-S-DN`/`SSL-CLIENT-CERT` headers that production sets at the
-TLS-terminating proxy (see `idds/auth.cfg`), and the iDDS client talks plain
-HTTP with `verify=False` upstream-wide.
+...) is unnecessary for the *create* path. Schema bootstrap in the entrypoint
+is idempotent (fresh schema: ORM `create_all` + alembic stamp; existing
+schema: `alembic upgrade head`), so warm `docker compose up` is a no-op.
+
+**Lifecycle commands are recorded, not executed.** In 2.6.21
+`close_workflow_task` only marks processings `ToCancel` and `adjust_worker`
+only writes `transform_metadata`; both rely on the carrier agent to act on
+them ("the carrier agent will detect ToCancel and close the PanDA task"),
+and that agent does not run here. The same applies to `abort`/`retry`
+commands. Callers get HTTP 200, but the PanDA task is never closed or
+adjusted through this path — swf-panda-workers in REST mode must not assume
+tasks were closed. (The iDDS records are still correct: a later deployment
+of the agent chain would pick the commands up.)
+
+**Auth model (dev stack).** In production httpd terminates TLS and exports
+the client certificate DN as `SSL_CLIENT_S_DN` in the WSGI environ. This
+stack serves plain HTTP, so the wsgi middleware (see `idds/Dockerfile`)
+injects `IDDS_DEV_DN` as the client DN for *every* request: iDS reads the
+environ before any client-supplied `SSL-CLIENT-S-DN` header, so every caller
+is authenticated as the dev identity — which is a `super_user` in
+`idds/auth.cfg`. The service is therefore effectively unauthenticated and
+publishes its port on loopback only (`127.0.0.1:25444`); a deployment behind
+real TLS leaves `IDDS_DEV_DN` unset, and the header path applies again.
 
 ### pg_cron maintenance jobs
 

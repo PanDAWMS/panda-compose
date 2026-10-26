@@ -134,7 +134,7 @@ echo "resource_types seeded."
 #   - global_shares: at least one row is required or WorkQueueMapper crashes in
 #     get_share_for_task (re.match(None, ...)) and refine raises
 #     "task definition does not match any global share".
-echo "Seeding JEDI work queue and global share for vo=${PANDA_TASK_VO} label=${PANDA_TASK_LABEL}... "
+echo "Seeding JEDI work queues and global shares for vo=${PANDA_TASK_VO} (labels: ${PANDA_TASK_LABEL}, managed)..."
 psql -v ON_ERROR_STOP=1 << ENDOFSQL
 INSERT INTO doma_panda.jedi_work_queue
   (queue_id, queue_name, queue_type, vo, status, queue_order, queue_function)

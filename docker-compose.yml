@@ -275,16 +275,22 @@ services:
       # for every caller (the trusted-TLS-proxy model; see idds/Dockerfile).
       # Must match allow_users in idds/auth.cfg.
       IDDS_DEV_DN: /CN=idds/O=Dev/C=CH
-      # insertTaskParams posts to baseURLSSL, so the SSL URL must also be
-      # plain HTTP here: panda-server's compose deployment is HTTP-only and
-      # the iDDS client verifies nothing anyway (upstream verify=False).
-      PANDA_URL: ${PANDA_URL:-http://panda-server:80/server/panda}
-      PANDA_URL_SSL: ${PANDA_URL:-http://panda-server:80/server/panda}
-      PANDACACHE_URL: ${PANDA_URL:-http://panda-server:80/server/panda}
+      # Hardcoded container-internal URLs rather than ${PANDA_URL}: that
+      # variable is documented for export from the host shell (localhost
+      # values), which would override .env and point this container at a
+      # nonexistent localhost panda-server. insertTaskParams posts to
+      # baseURLSSL, so the SSL URL must also be plain HTTP: panda-server's
+      # compose deployment is HTTP-only.
+      PANDA_URL: http://panda-server:80/server/panda
+      PANDA_URL_SSL: http://panda-server:80/server/panda
+      PANDACACHE_URL: http://panda-server:80/server/panda
     volumes:
       - ./idds/auth.cfg:/etc/idds/auth/auth.cfg:ro
     ports:
-      - "25444:443"   # iDDS REST (host 25444 → container 443)
+      # Loopback only: with IDDS_DEV_DN set the service is effectively
+      # unauthenticated (every caller becomes the dev identity, a
+      # super_user) - see the wsgi middleware in idds/Dockerfile.
+      - "127.0.0.1:25444:443"
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:443/ping')\" || exit 1"]
       interval: 15s

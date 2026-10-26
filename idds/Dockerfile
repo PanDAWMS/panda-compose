@@ -7,15 +7,24 @@
 # installs from PyPI at the version matching panda-server's bundled client.
 FROM python:3.11-slim
 
+# Pin every idds-* package: idds-doma/idds-client depend on
+# idds-workflow>=2.2.0, so leaving it out would float the whole workflow
+# package to the latest release. The image patches upstream code via
+# exact-string anchors, so a floating dependency set breaks the build
+# loudly (assertion) rather than silently - but only if everything is
+# pinned. Versions below match the panda-server image's bundled client.
+# psycopg[binary] is intentionally absent: idds-server already depends on
+# psycopg2-binary and psycopg[binary], and the postgresql:// URL selects
+# psycopg2 anyway.
 RUN pip install --no-cache-dir \
     "idds-common==2.6.21" \
     "idds-server==2.6.21" \
     "idds-doma==2.6.21" \
     "idds-prompt==2.6.21" \
+    "idds-workflow==2.6.21" \
     "idds-client==2.6.21" \
-    "psycopg[binary]" \
-    "panda-client-light" \
-    "gunicorn"
+    "panda-client-light==2.1.7" \
+    "gunicorn==26.2.0"
 
 # the REST app's controllers write a rotating log via get_logger()
 RUN mkdir -p /var/log/idds && chmod 777 /var/log/idds
@@ -26,6 +35,10 @@ RUN mkdir -p /var/log/idds && chmod 777 /var/log/idds
 # input_coll_id, output_coll_id, workload_id) - so every successful create
 # raised "too many values to unpack", or with a len()-based workaround,
 # returned the dict *keys* instead of the values. Read the dict directly.
+#
+# The prompt handler swallows *all* PanDA submission exceptions and returns
+# workload_id=None, which would surface as HTTP 200 with a null workload_id;
+# raise here so callers get a 5xx when no PanDA task was created.
 RUN python - <<'EOF'
 p = '/usr/local/lib/python3.11/site-packages/idds/rest/v1/workflowtask.py'
 src = open(p).read()
@@ -41,6 +54,11 @@ new = """            _ret = _create_workflow_task(workflow, logger=logger)
             if not isinstance(_ret, dict):
                 raise exceptions.CoreException(
                     f'unexpected create_workflow_task return: {_ret!r}')
+            if _ret['workload_id'] is None:
+                raise exceptions.CoreException(
+                    'PanDA task submission failed; see idds_rest.log '
+                    '(workload_id is None)')
+            run_id = _ret.get('run_id')
             request_id = _ret['request_id']
             transform_id = _ret['transform_id']
             processing_id = _ret['processing_id']
@@ -48,6 +66,20 @@ new = """            _ret = _create_workflow_task(workflow, logger=logger)
             output_coll_id = _ret['output_coll_id']
             workload_id = _ret['workload_id']"""
 assert old in src, 'workflowtask.py patch anchor not found'
+open(p, 'w').write(src.replace(old, new))
+print('patched', p)
+EOF
+
+# Also pass the handler's run_id through to the response body.
+RUN python - <<'EOF'
+p = '/usr/local/lib/python3.11/site-packages/idds/rest/v1/workflowtask.py'
+src = open(p).read()
+old = """            data={
+                'request_id': request_id,"""
+new = """            data={
+                'run_id': run_id,
+                'request_id': request_id,"""
+assert old in src, 'response-data patch anchor not found'
 open(p, 'w').write(src.replace(old, new))
 print('patched', p)
 EOF
@@ -88,9 +120,17 @@ class PrefixMiddleware:
     DN as SSL_CLIENT_S_DN in the WSGI environ. The compose stack serves
     plain HTTP, so no TLS layer can do that; instead the deployment sets
     IDDS_DEV_DN, and every caller is authenticated as that identity.
-    Access is still governed by auth.cfg (allow_users), and the variable
-    is unset by default - a production deployment behind real TLS never
-    sets it.
+
+    Consequences of the model (deliberate, dev-stack only):
+    - before_request_auth reads the environ first and only falls back to
+      the SSL-CLIENT-S-DN header when the environ value is empty, so
+      client-supplied DN/cert headers are ignored while IDDS_DEV_DN is
+      set - every caller IS the dev identity;
+    - the dev identity is a super_user in auth.cfg, so callers may act
+      on behalf of other users via X-IDDS-Auth-Username-Original;
+    - effectively unauthenticated: the compose service publishes the
+      port on loopback only (127.0.0.1), and the variable is unset by
+      default - a deployment behind real TLS never sets it.
     """
 
     def __init__(self, app, prefix='/idds'):
