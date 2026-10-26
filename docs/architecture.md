@@ -187,10 +187,19 @@ adjusted through this path — swf-panda-workers in REST mode must not assume
 tasks were closed. (The iDDS records are still correct: a later deployment
 of the agent chain would pick the commands up.)
 
+**Create is not idempotent.** The iDDS request/transform/processing rows
+are committed before the PanDA submission is attempted, and the REST layer
+raises (5xx) only when the submission failed. A caller retrying a failed
+create therefore inserts a *second* set of rows under a new request_id —
+and once the per-run transform fix lands upstream, may also hit the
+`TRANSFORMS_NAME_UQ` constraint for the same run. Retries should be
+driven by the `run_id` ↔ task mapping (query first), not by blind
+re-submission.
+
 **Auth model (dev stack).** In production httpd terminates TLS and exports
 the client certificate DN as `SSL_CLIENT_S_DN` in the WSGI environ. This
 stack serves plain HTTP, so the wsgi middleware (see `idds/Dockerfile`)
-injects `IDDS_DEV_DN` as the client DN for *every* request: iDS reads the
+injects `IDDS_DEV_DN` as the client DN for *every* request: iDDS reads the
 environ before any client-supplied `SSL-CLIENT-S-DN` header, so every caller
 is authenticated as the dev identity — which is a `super_user` in
 `idds/auth.cfg`. The service is therefore effectively unauthenticated and

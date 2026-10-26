@@ -38,7 +38,11 @@ RUN mkdir -p /var/log/idds && chmod 777 /var/log/idds
 #
 # The prompt handler swallows *all* PanDA submission exceptions and returns
 # workload_id=None, which would surface as HTTP 200 with a null workload_id;
-# raise here so callers get a 5xx when no PanDA task was created.
+# raise here so callers get a 5xx when no PanDA task was created. NB: the
+# iDDS request/transform/processing rows are already committed by then, so
+# a caller retrying on 5xx creates a second set (and may hit
+# TRANSFORMS_NAME_UQ for the per-run transform); the ids in the message
+# exist for correlation and cleanup.
 RUN python - <<'EOF'
 p = '/usr/local/lib/python3.11/site-packages/idds/rest/v1/workflowtask.py'
 src = open(p).read()
@@ -56,8 +60,11 @@ new = """            _ret = _create_workflow_task(workflow, logger=logger)
                     f'unexpected create_workflow_task return: {_ret!r}')
             if _ret['workload_id'] is None:
                 raise exceptions.CoreException(
-                    'PanDA task submission failed; see idds_rest.log '
-                    '(workload_id is None)')
+                    f"PanDA task submission failed "
+                    f"(request_id={_ret['request_id']}, "
+                    f"transform_id={_ret['transform_id']}); "
+                    f"see idds_rest.log. The iDDS records above are "
+                    f"already committed; retrying will duplicate them.")
             run_id = _ret.get('run_id')
             request_id = _ret['request_id']
             transform_id = _ret['transform_id']

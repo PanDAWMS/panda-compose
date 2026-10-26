@@ -51,14 +51,37 @@ def main():
                 f'iDDS schema {DEFAULT_SCHEMA_NAME!r} not found; '
                 'setup-queue.sh should have created it'
             )
-        already = bool(insp.get_table_names(schema=DEFAULT_SCHEMA_NAME))
+        tables = set(insp.get_table_names(schema=DEFAULT_SCHEMA_NAME))
+        # A populated schema with no alembic version ROW means a previous
+        # start died between create_all and stamp (e.g. on the % password
+        # bug this script once had), or the version row was lost. Running
+        # `upgrade head` from base there would fail on the very first
+        # revision (DuplicateColumn: create_all already made the column),
+        # crash-looping the container - so treat it as fresh and stamp.
+        # NB: checking the row, not just the table's existence - an empty
+        # alembic_version table sends alembic back to base all the same.
+        has_version = False
+        if 'alembic_version' in tables:
+            from sqlalchemy import text
+
+            result = conn.execute(
+                text(f'SELECT 1 FROM {DEFAULT_SCHEMA_NAME}.alembic_version LIMIT 1')
+            )
+            has_version = result.scalar() is not None
 
     from alembic import command
 
-    if not already:
+    if not tables:
         models.BASE.metadata.create_all(engine)
         command.stamp(alembic_config(engine), 'head')
         print('fresh schema: created from ORM metadata, alembic stamped at head')
+    elif not has_version:
+        # no-op for existing tables, creates anything missing; the schema
+        # came from create_all, so it matches the ORM and needs no
+        # migrations - just record the version.
+        models.BASE.metadata.create_all(engine)
+        command.stamp(alembic_config(engine), 'head')
+        print('unversioned schema: create_all no-op + alembic stamped at head')
     else:
         # applies only migrations newer than the recorded version
         command.upgrade(alembic_config(engine), 'head')
