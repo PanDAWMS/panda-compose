@@ -412,6 +412,25 @@ class RucioStager(BaseStager):
                 except OSError:
                     return path
 
+        # Match by extension: a payload may name its outputs after the
+        # input (e.g. swf.<run>.<n>.edm4eic.root) while the declared LFN
+        # follows the --outputs template (…_output.edm4eic.root). When the
+        # LFN and a candidate share the trailing ".<type>.<ext>" suffix
+        # (e.g. .edm4eic.root) and exactly one candidate matches, use it
+        # (renamed to the LFN).
+        lfn_tokens = lfn.split(".")
+        ext = "." + ".".join(lfn_tokens[-2:]) if len(lfn_tokens) >= 2 else os.path.splitext(lfn)[1]
+        ext_matches = [n for n in candidates if n.endswith(ext) and not n.endswith(".log.tgz") and os.path.isfile(os.path.join(worker_output, n))]
+        if len(ext_matches) == 1:
+            path = os.path.join(worker_output, ext_matches[0])
+            dest = os.path.join(worker_output, lfn)
+            try:
+                os.rename(path, dest)
+                tmpLog.debug(f"extension match: {ext_matches[0]} -> {lfn}")
+                return dest
+            except OSError:
+                return path
+
         if file_type == "log" or lfn.endswith(".log.tgz"):
             dest = os.path.join(worker_output, lfn)
             self._make_log_tgz(dest, jobspec, worker_output)
