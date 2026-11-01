@@ -74,9 +74,13 @@ def _rucio_deterministic_pfn(scope, name):
     `RSEDeterministicTranslation` with the `hash` algorithm:
 
         <scope>/<md5[0:2]>/<md5[2:4]>/<name>
+
+    Rucio maps the scope's dots to directory separators (scope "group.daq"
+    lands at group/daq/...), so the same substitution is applied here.
     """
     digest = hashlib.md5(f"{scope}:{name}".encode("utf-8")).hexdigest()
-    return os.path.join(scope, digest[0:2], digest[2:4], name)
+    scope_dir = scope.replace(".", "/")
+    return os.path.join(scope_dir, digest[0:2], digest[2:4], name)
 
 
 class DockerSubmitter(PluginBase):
