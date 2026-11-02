@@ -1,35 +1,55 @@
 #!/bin/sh
-# iDDS REST service entrypoint: render idds.cfg from the environment, then
-# bootstrap the doma_idds schema if absent (idempotent), then exec CMD.
-# Config rendering must come first: the idds ORM reads IDDS_CONFIG at import
-# time, so the bootstrap script cannot import it before the file exists.
+# Entrypoint shim for the compose idds service on the official ghcr.io/hsf/idds
+# image. Renders the config override from the environment (compose
+# interpolation cannot reach inside mounted files), stages the repo auth.cfg
+# as an override source, then execs the image's own start-daemon.sh - which
+# merges config defaults + overrides into /opt/idds/config/idds/*.cfg,
+# bootstraps the database (create_database.py: schema-tolerant ORM create_all
+# + alembic stamp, then `alembic upgrade heads`) and starts supervisord with
+# httpd serving the /idds WSGI app on 8080 (plain HTTP) and 8443 (TLS).
 set -e
 
-# idds.core reads its config from IDDS_CONFIG (the app imports it at
-# startup, so it must exist before anything imports idds).
-python - <<'EOF'
-import os
+mkdir -p /tmp/idds-overrides
 
-tpl = open('/etc/idds/idds.cfg.template').read()
-vals = {
-    'IDDS_DB_URL': os.environ.get('IDDS_DB_URL', ''),
-    'IDDS_DB_SCHEMA': os.environ.get('IDDS_DB_SCHEMA', 'doma_idds'),
-    'IDDS_REST_HOST': os.environ.get('IDDS_REST_HOST', 'http://idds:443/idds'),
-    'IDDS_LOG_LEVEL': os.environ.get('IDDS_LOG_LEVEL', 'INFO'),
-}
-for key, val in vals.items():
-    # iDDS reads the rendered file with configparser, which applies
-    # BasicInterpolation: a literal % (e.g. a URL-encoded password) must be
-    # doubled or ConfigParser raises InterpolationSyntaxError at import.
-    tpl = tpl.replace('${%s}' % key, val.replace('%', '%%'))
-if '${' in tpl:
-    # any unresolved placeholder means misconfiguration, fail loudly
-    import re
-    left = sorted(set(re.findall(r'\$\{([A-Z_]+)\}', tpl)))
-    raise SystemExit('unresolved template placeholders: %s' % ', '.join(left))
-open('/etc/idds/idds.cfg', 'w').write(tpl)
+cat > /tmp/idds-overrides/idds.cfg <<EOF
+[database]
+default = ${IDDS_DB_URL}
+schema = ${IDDS_DB_SCHEMA}
+
+[main]
+# Only the REST service runs in the compose stack; the agent chain
+# (clerk, transformer, submitter, ...) is unnecessary for the
+# create_workflow_task path, which submits to PanDA synchronously.
+agents =
+
+[rest]
+host = ${IDDS_REST_HOST}
 EOF
 
-python /bootstrap.py
+# panda.cfg: the image ships /opt/idds/config/panda.cfg pre-existing, so
+# start-daemon's "already mounted" check skips generation and
+# IDDS_OVERRIDE_PANDA_CONFIGS never applies. Write our config directly
+# (the image's default points at the production DOMA server with
+# panda_auth = oidc - id-token auth, unusable in the dev stack; pandaclient
+# exits 255 fetching a token). insertTaskParams posts to baseURLSSL, so the
+# SSL URL must also be plain HTTP: panda-server's compose deployment is
+# HTTP-only.
+cat > /opt/idds/config/panda.cfg <<EOF
+[panda]
+panda_auth = None
+panda_url = http://panda-server:80/server/panda
+panda_url_ssl = http://panda-server:80/server/panda
+pandacache_url = http://panda-server:80/server/panda
+EOF
 
-exec "$@"
+# auth override: copy the read-only bind to a writable path so start-daemon's
+# merge can consume it (IDDS_OVERRIDE_AUTH_CONFIGS is a space-separated list
+# of source files merged over config_default/auth.cfg).
+cp /tmp/idds-overrides/auth.cfg.source /tmp/idds-overrides/auth.cfg 2>/dev/null || true
+if [ -f /tmp/idds-overrides/auth.cfg ]; then
+    export IDDS_OVERRIDE_AUTH_CONFIGS="/tmp/idds-overrides/auth.cfg"
+fi
+
+export IDDS_OVERRIDE_IDDS_CONFIGS="/tmp/idds-overrides/idds.cfg"
+
+exec /opt/idds/bin/start-daemon.sh "$@"

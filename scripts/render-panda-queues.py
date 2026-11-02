@@ -18,7 +18,7 @@ def concrete_queue():
         "queueStatus": "online",
         # 'managed' so the harvester fetches jobs from iDDS workflow tasks,
         # which the iDDS prompt handler submits with prodSourceLabel=managed
-        # (hardcoded there as of idds 2.6.21). The fetch also matches
+        # (hardcoded there as of idds 2.6.22). The fetch also matches
         # test/prod_test/install, so direct jobs submitted with the test
         # label keep flowing.
         "prodSourceLabel": "managed",

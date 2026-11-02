@@ -154,7 +154,7 @@ The `init` service runs `scripts/setup-queue.sh` once after `postgres` and
    (see below); direct job submission does not need them. A second
    `epic`/`managed` pair is seeded for iDDS workflow tasks: the iDDS prompt
    handler hardcodes `prodSourceLabel='managed'` in its create path (as of
-   iDDS 2.6.21; re-verify on upgrade)
+   iDDS 2.6.22; re-verify on upgrade)
 5. Creates the `doma_idds` schema (owned by the PanDA role) for the iDDS
    service; the iDDS container's entrypoint creates its tables from the ORM
    metadata on first start
@@ -164,20 +164,36 @@ start until the init container exits 0.
 
 ### idds — workflow task creation (iDDS REST)
 
-The `idds` service is a lean iDDS REST service (`idds/` build context, packages
-from PyPI at the version matching panda-server's bundled client) exposing
-`POST /workflow_task`. The handler records iDDS requests/transforms/processings
+The `idds` service runs the official [`ghcr.io/hsf/idds`](https://github.com/HSF/iDDS)
+image with a thin patch layer (`idds/` build context). httpd serves the WSGI app
+under `/idds` on 8080 (plain HTTP) and 8443 (TLS), exposing
+`POST /idds/workflow_task`. The handler records iDDS requests/transforms/processings
 in the compose postgres (`doma_idds` schema) and submits the PanDA task
 synchronously via panda-client — the same `insertTaskParams` path as
 `panda_api.submit_task`. This is the entry point used by the SWF panda-workers
 transceiver (message or REST mode) to create worker tasks per run.
 
-Only the REST service runs; iDDS's agent chain (clerk, transformer, submitter,
-...) is unnecessary for the *create* path. Schema bootstrap in the entrypoint
-is idempotent (fresh schema: ORM `create_all` + alembic stamp; existing
-schema: `alembic upgrade head`), so warm `docker compose up` is a no-op.
+Configuration flows through the image's own machinery: the entrypoint shim
+(`idds/entrypoint.sh`) renders an override file from the `IDDS_*` compose
+environment and the image's `start-daemon.sh` merges it over its config
+defaults (`IDDS_OVERRIDE_IDDS_CONFIGS`). The agent chain (clerk, transformer,
+submitter, ...) is disabled via `[main] agents =` — the create path submits
+synchronously and needs none of them. Database bootstrap is also the image's
+own (`create_database.py`: schema-tolerant ORM `create_all` + alembic stamp,
+then `alembic upgrade heads`), so warm `docker compose up` is a no-op.
 
-**Lifecycle commands are recorded, not executed.** In 2.6.21
+Two upstream bugs (as of idds 2.6.22) are patched at image build time, both
+documented in `idds/Dockerfile`: the workflow_task REST layer unpacks the
+`create_workflow_task` return as a 6-tuple while the handler returns a dict
+(every successful create raised ValueError; `run_id` is also passed through to
+the response body), and the image's default `panda.cfg` points at the
+production DOMA server with OIDC auth — the shim writes a dev `panda.cfg`
+pointing at the compose panda-server with auth disabled. The transform-naming
+collision (one transform per workflow per day) was fixed upstream in 2.6.22
+via the `fast_processing` flag; the compose stack does not set it, so
+transforms are per-run.
+
+**Lifecycle commands are recorded, not executed.** In 2.6.22
 `close_workflow_task` only marks processings `ToCancel` and `adjust_worker`
 only writes `transform_metadata`; both rely on the carrier agent to act on
 them ("the carrier agent will detect ToCancel and close the PanDA task"),
@@ -198,7 +214,7 @@ re-submission.
 
 **Auth model (dev stack).** In production httpd terminates TLS and exports
 the client certificate DN as `SSL_CLIENT_S_DN` in the WSGI environ. This
-stack serves plain HTTP, so the wsgi middleware (see `idds/Dockerfile`)
+stack serves plain HTTP, so the wsgi wrapper (see `idds/Dockerfile`)
 injects `IDDS_DEV_DN` as the client DN for *every* request: iDDS reads the
 environ before any client-supplied `SSL-CLIENT-S-DN` header, so every caller
 is authenticated as the dev identity — which is a `super_user` in

@@ -148,7 +148,7 @@ ON CONFLICT DO NOTHING;
 
 -- iDDS workflow tasks: the iDDS prompt handler hardcodes
 -- prodSourceLabel='managed' in the workflow-task create path (as of idds
--- 2.6.21; re-verify on upgrade). Seed the matching work-queue /
+-- 2.6.22; re-verify on upgrade). Seed the matching work-queue /
 -- global-share rows so the TaskRefiner accepts them.
 INSERT INTO doma_panda.jedi_work_queue
   (queue_id, queue_name, queue_type, vo, status, queue_order, queue_function)
