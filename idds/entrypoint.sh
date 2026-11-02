@@ -50,6 +50,27 @@ if [ -f /tmp/idds-overrides/auth.cfg ]; then
     export IDDS_OVERRIDE_AUTH_CONFIGS="/tmp/idds-overrides/auth.cfg"
 fi
 
+# Agent chain suppression: the image declares VOLUME /opt/idds/config, so
+# generated configs (including the agent supervisord programs copied by
+# start-daemon's first-run block) persist across container recreation in an
+# anonymous volume. Remove the agent program definitions every boot; the
+# /etc/supervisord.d symlinks to them then dangle and supervisord starts
+# only httpd, healthmonitor and logrotate. The agent chain must stay off:
+# create_workflow_task submits to PanDA synchronously, and running carriers
+# would act on the records the handler writes (observed live: the Finisher
+# flipped old processings to Broken/Finished within minutes of boot).
+# NB: supervisord_idds.ini itself is the compose bind mount (the guard that
+# keeps start-daemon from re-copying these files) - it is read-only and NOT
+# in the list; everything else must go.
+rm -f /opt/idds/config/idds/supervisord_idds_clerk.ini \
+      /opt/idds/config/idds/supervisord_idds_transformer.ini \
+      /opt/idds/config/idds/supervisord_idds_submitter.ini \
+      /opt/idds/config/idds/supervisord_idds_poller.ini \
+      /opt/idds/config/idds/supervisord_idds_receiver.ini \
+      /opt/idds/config/idds/supervisord_idds_trigger.ini \
+      /opt/idds/config/idds/supervisord_idds_finisher.ini \
+      /opt/idds/config/idds/supervisord_nats.ini
+
 export IDDS_OVERRIDE_IDDS_CONFIGS="/tmp/idds-overrides/idds.cfg"
 
 exec /opt/idds/bin/start-daemon.sh "$@"

@@ -298,6 +298,11 @@ services:
       # is set to this path by the entrypoint shim after it copies the file;
       # a plain bind keeps the repo file authoritative)
       - ./idds/auth.cfg:/tmp/idds-overrides/auth.cfg.source:ro
+      # Presence of this file makes start-daemon skip copying the agent-chain
+      # supervisord programs (clerk/transformer/submitter/poller/receiver/
+      # trigger/finisher) - see the file's comments. Without it the carriers
+      # run and act on the records create_workflow_task writes.
+      - ./idds/supervisord_idds.ini:/opt/idds/config/idds/supervisord_idds.ini:ro
     ports:
       # Loopback only: with IDDS_DEV_DN set the service is effectively
       # unauthenticated (every caller becomes the dev identity, a
