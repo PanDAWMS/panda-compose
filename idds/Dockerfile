@@ -17,7 +17,16 @@ USER root
 # input_coll_id, output_coll_id, workload_id) - so every successful create
 # raises ValueError. Read the dict directly. (The transform-naming collision
 # was fixed upstream in 2.6.22 via the fast_processing flag.)
-USER root
+#
+# The prompt handler also swallows *all* PanDA submission exceptions
+# (workflowtaskhandler.py: create_workflow_task's try/except around
+# PandaClient().submit()) and returns workload_id=None, which upstream
+# surfaces as HTTP 200 with workload_id: null. Raise (5xx, InternalError)
+# when the submission failed so callers see the failure - the iDDS
+# request/transform/processing rows are already committed at that point, so
+# the ids are included in the message for correlation/cleanup and retries
+# must go through the run_id mapping (see docs/architecture.md, "Create is
+# not idempotent").
 RUN /opt/idds/bin/python - <<'EOF'
 p = '/opt/idds/lib/python3.11/site-packages/idds/rest/v1/workflowtask.py'
 src = open(p).read()
@@ -33,6 +42,13 @@ new = """            _ret = _create_workflow_task(workflow, logger=logger)
             if not isinstance(_ret, dict):
                 raise exceptions.CoreException(
                     f'unexpected create_workflow_task return: {_ret!r}')
+            if _ret['workload_id'] is None:
+                raise exceptions.CoreException(
+                    f"PanDA task submission failed "
+                    f"(request_id={_ret['request_id']}, "
+                    f"transform_id={_ret['transform_id']}); "
+                    f"see idds_rest.log. The iDDS records above are "
+                    f"already committed; retrying will duplicate them.")
             run_id = _ret.get('run_id')
             request_id = _ret['request_id']
             transform_id = _ret['transform_id']
