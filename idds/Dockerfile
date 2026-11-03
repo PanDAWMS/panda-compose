@@ -7,7 +7,17 @@
 # This layer only patches the remaining upstream bugs in the
 # create_workflow_task path and wraps the wsgi entry for the dev-stack
 # auth model.
-FROM ghcr.io/hsf/idds:latest
+#
+# Pinned to the 2.6.22 tag:
+# - the patches below match exact strings in the installed 2.6.22 sources,
+#   so a moved tag breaks the build with an assertion rather than silently
+#   drifting (e.g. when upstream fixes the tuple-unpack bug, the patch
+#   should be dropped, not loosened);
+# - the bundled idds/panda-client versions stay the ones this stack and
+#   its "as of idds 2.6.22" notes were validated with. To move to a newer
+#   release: bump the tag, let the build's assertions check the patch
+#   anchors, and re-verify the version notes.
+FROM ghcr.io/hsf/idds:2.6.22
 
 USER root
 
