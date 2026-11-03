@@ -11,10 +11,23 @@ set -e
 
 mkdir -p /tmp/idds-overrides
 
+# Render the idds.cfg override from the environment. The value passes
+# through TWO interpolating ConfigParser boundaries: this file is read by
+# start-daemon's merge_idds_configs.py (which both reads and writes with
+# interpolation), and the merged output is later read by iDDS's own
+# ConfigParser. A literal % must therefore be written as %%%% to survive
+# both stages - verified empirically: bare % makes the merge skip the whole
+# override file (WARNING, silent sqlite fallback), and %% fails the merge's
+# write leaving the default value in place.
+escape_pct() {
+    # % -> %%%% (both interpolation boundaries)
+    printf '%s' "$1" | sed 's/%/%%%%/g'
+}
+
 cat > /tmp/idds-overrides/idds.cfg <<EOF
 [database]
-default = ${IDDS_DB_URL}
-schema = ${IDDS_DB_SCHEMA}
+default = $(escape_pct "${IDDS_DB_URL}")
+schema = $(escape_pct "${IDDS_DB_SCHEMA}")
 
 [main]
 # Only the REST service runs in the compose stack; the agent chain
@@ -23,7 +36,7 @@ schema = ${IDDS_DB_SCHEMA}
 agents =
 
 [rest]
-host = ${IDDS_REST_HOST}
+host = $(escape_pct "${IDDS_REST_HOST}")
 EOF
 
 # panda.cfg: the image ships /opt/idds/config/panda.cfg pre-existing, so
@@ -31,24 +44,31 @@ EOF
 # IDDS_OVERRIDE_PANDA_CONFIGS never applies. Write our config directly
 # (the image's default points at the production DOMA server with
 # panda_auth = oidc - id-token auth, unusable in the dev stack; pandaclient
-# exits 255 fetching a token). insertTaskParams posts to baseURLSSL, so the
-# SSL URL must also be plain HTTP: panda-server's compose deployment is
-# HTTP-only.
+# exits 255 fetching a token). insertTaskParams posts to baseURLSSL, so
+# the SSL URL must also be plain HTTP: panda-server's compose deployment is
+# HTTP-only. This file is written by us and read only by iDDS's
+# ConfigParser (no merge step), so a literal % needs the single %% escape.
+PCT_ESCAPED_PANDA_URL=$(printf '%s' "${PANDA_URL:-http://panda-server:80/server/panda}" | sed 's/%/%%/g')
 cat > /opt/idds/config/panda.cfg <<EOF
 [panda]
 panda_auth = None
-panda_url = http://panda-server:80/server/panda
-panda_url_ssl = http://panda-server:80/server/panda
-pandacache_url = http://panda-server:80/server/panda
+panda_url = ${PCT_ESCAPED_PANDA_URL}
+panda_url_ssl = ${PCT_ESCAPED_PANDA_URL}
+pandacache_url = ${PCT_ESCAPED_PANDA_URL}
 EOF
 
 # auth override: copy the read-only bind to a writable path so start-daemon's
 # merge can consume it (IDDS_OVERRIDE_AUTH_CONFIGS is a space-separated list
-# of source files merged over config_default/auth.cfg).
-cp /tmp/idds-overrides/auth.cfg.source /tmp/idds-overrides/auth.cfg 2>/dev/null || true
-if [ -f /tmp/idds-overrides/auth.cfg ]; then
-    export IDDS_OVERRIDE_AUTH_CONFIGS="/tmp/idds-overrides/auth.cfg"
+# of source files merged over config_default/auth.cfg). The bind mount is
+# part of the compose service definition - a missing file is a deployment
+# error, not something to run without.
+AUTH_SOURCE=/tmp/idds-overrides/auth.cfg.source
+if [ ! -f "$AUTH_SOURCE" ]; then
+    echo "FATAL: $AUTH_SOURCE missing - the idds/auth.cfg bind mount is not present." >&2
+    exit 1
 fi
+cp "$AUTH_SOURCE" /tmp/idds-overrides/auth.cfg
+export IDDS_OVERRIDE_AUTH_CONFIGS="/tmp/idds-overrides/auth.cfg"
 
 # Config freshness: the image declares VOLUME /opt/idds/config, and
 # start-daemon.sh skips generating any config that already exists
@@ -83,5 +103,53 @@ rm -f /opt/idds/config/idds/supervisord_idds_clerk.ini \
       /opt/idds/config/idds/supervisord_nats.ini
 
 export IDDS_OVERRIDE_IDDS_CONFIGS="/tmp/idds-overrides/idds.cfg"
+
+# Pre-merge validation: merge_idds_configs.py swallows per-source errors
+# with a WARNING ("Skipping config file ... due to error") and carries on
+# with upstream defaults - which for this service means sqlite, every
+# agent enabled, and a rest host of https://localhost:443/idds, with
+# nothing failing at startup. Run the same merge the daemon will run and
+# verify our values survived; abort loudly if not.
+python3 /opt/idds/tools/env/merge_idds_configs.py \
+    -s /opt/idds/config_default/idds.cfg "$IDDS_OVERRIDE_IDDS_CONFIGS" \
+    -d /tmp/idds-overrides/idds.merged.cfg 2>&1 | tee /tmp/idds-overrides/merge.log
+if grep -q "Skipping config file" /tmp/idds-overrides/merge.log; then
+    echo "FATAL: an idds config override was rejected by the merge (see above). Refusing to start with upstream defaults." >&2
+    exit 1
+fi
+python3 /opt/idds/tools/env/merge_idds_configs.py \
+    -s /opt/idds/config_default/auth.cfg "$IDDS_OVERRIDE_AUTH_CONFIGS" \
+    -d /tmp/idds-overrides/auth.merged.cfg 2>&1 | tee /tmp/idds-overrides/auth-merge.log
+if grep -q "Skipping config file" /tmp/idds-overrides/auth-merge.log; then
+    echo "FATAL: the auth config override was rejected by the merge (see above). Refusing to start with upstream defaults." >&2
+    exit 1
+fi
+# Spot-check the values that must not silently fall back.
+python3 - <<'PYEOF'
+import configparser, os, sys
+
+def check(path, section, option, expected, what):
+    c = configparser.ConfigParser()
+    c.read(path)
+    try:
+        got = c.get(section, option)
+    except Exception as exc:
+        print(f"FATAL: {what}: cannot read [{section}] {option}: {exc}", file=sys.stderr)
+        sys.exit(1)
+    if got != expected:
+        print(f"FATAL: {what}: [{section}] {option} is {got!r}, expected {expected!r}", file=sys.stderr)
+        sys.exit(1)
+
+db_url = os.environ["IDDS_DB_URL"]
+check("/tmp/idds-overrides/idds.merged.cfg", "database", "default", db_url, "idds override")
+check("/tmp/idds-overrides/idds.merged.cfg", "database", "schema", os.environ.get("IDDS_DB_SCHEMA", "doma_idds"), "idds override")
+check("/tmp/idds-overrides/idds.merged.cfg", "main", "agents", "", "idds override")
+
+src = configparser.ConfigParser()
+src.read("/tmp/idds-overrides/auth.cfg")
+expected_allow = src.get("Users", "allow_users")
+check("/tmp/idds-overrides/auth.merged.cfg", "Users", "allow_users", expected_allow, "auth override")
+print("config pre-merge validation OK")
+PYEOF
 
 exec /opt/idds/bin/start-daemon.sh "$@"
