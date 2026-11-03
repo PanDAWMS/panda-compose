@@ -291,8 +291,6 @@ services:
       PANDA_URL: http://panda-server:80/server/panda
       PANDA_URL_SSL: http://panda-server:80/server/panda
       PANDACACHE_URL: http://panda-server:80/server/panda
-      # the REST app's controllers write a rotating log via get_logger()
-      IDDS_OVERRIDE_AUTH_CONFIGS: ""
     volumes:
       # auth override consumed by start-daemon's merge (IDDS_OVERRIDE_AUTH_CONFIGS
       # is set to this path by the entrypoint shim after it copies the file;
