@@ -88,10 +88,10 @@ rm -f /opt/idds/config/idds/idds.cfg \
 # Agent chain suppression: same anonymous-volume persistence would keep the
 # agent supervisord programs installed by a previous boot. Remove the agent
 # program definitions every boot; the /etc/supervisord.d symlinks to them
-# then dangle and supervisord starts only httpd, healthmonitor and
-# logrotate. The agent chain must stay off: create_workflow_task submits to
-# PanDA synchronously, and running carriers would act on the records the
-# handler writes (observed live: the Finisher flipped old processings to
+# then dangle and supervisord starts only the programs restored below. The
+# agent chain must stay off: create_workflow_task submits to PanDA
+# synchronously, and running carriers would act on the records the handler
+# writes (observed live: the Finisher flipped old processings to
 # Broken/Finished within minutes of boot).
 rm -f /opt/idds/config/idds/supervisord_idds_clerk.ini \
       /opt/idds/config/idds/supervisord_idds_transformer.ini \
@@ -101,6 +101,27 @@ rm -f /opt/idds/config/idds/supervisord_idds_clerk.ini \
       /opt/idds/config/idds/supervisord_idds_trigger.ini \
       /opt/idds/config/idds/supervisord_idds_finisher.ini \
       /opt/idds/config/idds/supervisord_nats.ini
+
+# Restore the programs this stack DOES need. start-daemon copies these from
+# config_default only inside the same branch the guard file suppresses, so
+# on a fresh /opt/idds/config volume they would be missing - and the image's
+# /etc/supervisord.d symlinks point into this directory, so without
+# supervisord_httpd.ini supervisord starts no httpd at all and the container
+# sits unhealthy forever (restart: unless-stopped does not restart unhealthy
+# containers). Copy them explicitly, every boot.
+for f in supervisord_httpd.ini \
+         supervisord_logrotate.ini \
+         supervisord_healthmonitor.ini \
+         logrotate_idds \
+         logrotate_daemon \
+         healthmonitor_daemon \
+         idds_health_check.py; do
+    rm -f "/opt/idds/config/idds/$f"
+    cp "/opt/idds/config_default/$f" "/opt/idds/config/idds/$f"
+done
+chmod +x /opt/idds/config/idds/logrotate_daemon \
+         /opt/idds/config/idds/healthmonitor_daemon \
+         /opt/idds/config/idds/idds_health_check.py
 
 export IDDS_OVERRIDE_IDDS_CONFIGS="/tmp/idds-overrides/idds.cfg"
 
