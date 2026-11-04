@@ -123,6 +123,33 @@ chmod +x /opt/idds/config/idds/logrotate_daemon \
          /opt/idds/config/idds/healthmonitor_daemon \
          /opt/idds/config/idds/idds_health_check.py
 
+# The httpd vhosts run at LogLevel debug and write httpd_error_log /
+# httpd_access_log (no .log suffix) directly into the /var/log/idds volume.
+# The stock logrotate_idds pattern only matches /var/log/idds/*.log, so
+# those two files would grow without limit even with the logrotate program
+# running. /etc/logrotate.d/idds symlinks into this volume, so extending
+# the pattern here covers them.
+#
+# Both stanzas need `su root root`: the image chmods /var/log/idds to 0777
+# (so the apache user can write), and logrotate refuses to rotate logs in
+# world-writable directories without it - without the directive, the stock
+# stanza fails the same way (pre-existing upstream: logrotate.log fills
+# with "skipping ... insecure permissions"). copytruncate because httpd
+# and supervisord hold the fds open.
+cat > /opt/idds/config/idds/logrotate_idds <<'EOF'
+/var/log/idds/*.log
+/var/log/idds/httpd_error_log /var/log/idds/httpd_access_log {
+    su root root
+    daily
+    missingok
+    rotate 3
+    size 2G
+    compress
+    delaycompress
+    copytruncate
+}
+EOF
+
 export IDDS_OVERRIDE_IDDS_CONFIGS="/tmp/idds-overrides/idds.cfg"
 
 # Pre-merge validation: merge_idds_configs.py swallows per-source errors
