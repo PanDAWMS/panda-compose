@@ -177,10 +177,15 @@ Configuration flows through the image's own machinery: the entrypoint shim
 (`idds/entrypoint.sh`) renders an override file from the `IDDS_*` compose
 environment and the image's `start-daemon.sh` merges it over its config
 defaults (`IDDS_OVERRIDE_IDDS_CONFIGS`). The agent chain (clerk, transformer,
-submitter, ...) is disabled via `[main] agents =` — the create path submits
-synchronously and needs none of them. Database bootstrap is also the image's
-own (`create_database.py`: schema-tolerant ORM `create_all` + alembic stamp,
-then `alembic upgrade heads`), so warm `docker compose up` is a no-op.
+submitter, ...) is disabled by the `supervisord_idds.ini` guard bind: each
+of the image's per-agent supervisord programs exports `IDDS_AGENTS`, which
+`load_config_agents()` reads before the `[main] agents` config, so the
+setting cannot disable them — the programs themselves must not be installed
+(see `idds/supervisord_idds.ini` and the entrypoint shim). The create path
+submits synchronously and needs none of the carriers. Database bootstrap is
+also the image's own (`create_database.py`: schema-tolerant ORM `create_all`
++ alembic stamp, then `alembic upgrade heads`), so warm
+`docker compose up` is a no-op.
 
 Two upstream bugs (as of idds 2.6.22) are patched at image build time, both
 documented in `idds/Dockerfile`: the workflow_task REST layer unpacks the
@@ -207,10 +212,9 @@ of the agent chain would pick the commands up.)
 are committed before the PanDA submission is attempted, and the REST layer
 raises (5xx) only when the submission failed. A caller retrying a failed
 create therefore inserts a *second* set of rows under a new request_id —
-and once the per-run transform fix lands upstream, may also hit the
-`TRANSFORMS_NAME_UQ` constraint for the same run. Retries should be
-driven by the `run_id` ↔ task mapping (query first), not by blind
-re-submission.
+and may also hit the `TRANSFORMS_NAME_UQ` constraint for the same run.
+Retries should be driven by the `run_id` ↔ task mapping (query first),
+not by blind re-submission.
 
 **Auth model (dev stack).** In production httpd terminates TLS and exports
 the client certificate DN as `SSL_CLIENT_S_DN` in the WSGI environ. This

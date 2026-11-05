@@ -29,25 +29,21 @@ cat > /tmp/idds-overrides/idds.cfg <<EOF
 default = $(escape_pct "${IDDS_DB_URL}")
 schema = $(escape_pct "${IDDS_DB_SCHEMA}")
 
-[main]
-# Only the REST service runs in the compose stack; the agent chain
-# (clerk, transformer, submitter, ...) is unnecessary for the
-# create_workflow_task path, which submits to PanDA synchronously.
-agents =
-
 [rest]
 host = $(escape_pct "${IDDS_REST_HOST}")
 EOF
 
-# panda.cfg: the image ships /opt/idds/config/panda.cfg pre-existing, so
-# start-daemon's "already mounted" check skips generation and
-# IDDS_OVERRIDE_PANDA_CONFIGS never applies. Write our config directly
-# (the image's default points at the production DOMA server with
-# panda_auth = oidc - id-token auth, unusable in the dev stack; pandaclient
-# exits 255 fetching a token). insertTaskParams posts to baseURLSSL, so
-# the SSL URL must also be plain HTTP: panda-server's compose deployment is
-# HTTP-only. This file is written by us and read only by iDDS's
-# ConfigParser (no merge step), so a literal % needs the single %% escape.
+# panda.cfg: write our config directly. The image's default (copied to
+# /opt/idds/config/panda.cfg by start-daemon on the first boot; on a
+# fresh volume the file does not exist until then) points at the
+# production DOMA server with panda_auth = oidc - id-token auth,
+# unusable in the dev stack (pandaclient exits 255 fetching a token),
+# and IDDS_OVERRIDE_PANDA_CONFIGS cannot fix it because the file's
+# "already mounted" check skips regeneration once a previous boot
+# created it. insertTaskParams posts to baseURLSSL, so the SSL URL must
+# also be plain HTTP: panda-server's compose deployment is HTTP-only.
+# This file is written by us and read only by iDDS's ConfigParser (no
+# merge step), so a literal % needs the single %% escape.
 PCT_ESCAPED_PANDA_URL=$(printf '%s' "${PANDA_URL:-http://panda-server:80/server/panda}" | sed 's/%/%%/g')
 cat > /opt/idds/config/panda.cfg <<EOF
 [panda]
@@ -83,15 +79,18 @@ rm -f /opt/idds/config/idds/idds.cfg \
       /opt/idds/config/idds/auth.cfg \
       /opt/idds/config/idds/alembic.ini \
       /opt/idds/config/idds/gacl \
-      /opt/idds/config/idds/rucio.cfg
+      /opt/idds/config/rucio.cfg
 
-# Agent chain suppression: same anonymous-volume persistence would keep the
-# agent supervisord programs installed by a previous boot. Remove the agent
-# program definitions every boot; the /etc/supervisord.d symlinks to them
-# then dangle and supervisord starts only the programs restored below. The
-# agent chain must stay off: create_workflow_task submits to PanDA
-# synchronously, and running carriers would act on the records the handler
-# writes (observed live: the Finisher flipped old processings to
+# Agent chain suppression. The [main] agents = setting has no effect on
+# the carrier programs: each supervisord agent program sets IDDS_AGENTS
+# in its environment, and load_config_agents() reads that before the
+# config. What actually disables the chain is the guard bind
+# (supervisord_idds.ini - see that file) plus removing the agent
+# program definitions here, so their /etc/supervisord.d symlinks dangle
+# and supervisord starts only the programs restored below. The agent
+# chain must stay off: create_workflow_task submits to PanDA
+# synchronously, and running carriers would act on the records the
+# handler writes (observed live: the Finisher flipped old processings to
 # Broken/Finished within minutes of boot).
 rm -f /opt/idds/config/idds/supervisord_idds_clerk.ini \
       /opt/idds/config/idds/supervisord_idds_transformer.ini \
@@ -99,8 +98,7 @@ rm -f /opt/idds/config/idds/supervisord_idds_clerk.ini \
       /opt/idds/config/idds/supervisord_idds_poller.ini \
       /opt/idds/config/idds/supervisord_idds_receiver.ini \
       /opt/idds/config/idds/supervisord_idds_trigger.ini \
-      /opt/idds/config/idds/supervisord_idds_finisher.ini \
-      /opt/idds/config/idds/supervisord_nats.ini
+      /opt/idds/config/idds/supervisord_idds_finisher.ini
 
 # Restore the programs this stack DOES need. start-daemon copies these from
 # config_default only inside the same branch the guard file suppresses, so
@@ -191,7 +189,6 @@ def check(path, section, option, expected, what):
 db_url = os.environ["IDDS_DB_URL"]
 check("/tmp/idds-overrides/idds.merged.cfg", "database", "default", db_url, "idds override")
 check("/tmp/idds-overrides/idds.merged.cfg", "database", "schema", os.environ.get("IDDS_DB_SCHEMA", "doma_idds"), "idds override")
-check("/tmp/idds-overrides/idds.merged.cfg", "main", "agents", "", "idds override")
 
 src = configparser.ConfigParser()
 src.read("/tmp/idds-overrides/auth.cfg")

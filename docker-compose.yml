@@ -258,7 +258,10 @@ services:
   # panda-workers transceiver (message or REST mode). Config is rendered
   # from IDDS_* env by the entrypoint shim and merged by the image's own
   # start-daemon machinery over config defaults; the agent chain is
-  # disabled ([main] agents =) since the create path submits synchronously.
+  # disabled by the supervisord_idds.ini guard bind (the image's
+  # per-agent supervisord programs set IDDS_AGENTS, which overrides any
+  # [main] agents config, so the programs themselves must not be
+  # installed - see idds/supervisord_idds.ini).
   # ────────────────────────────────────────────────────────────────
   idds:
     build: ./idds
