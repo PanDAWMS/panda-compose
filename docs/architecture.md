@@ -25,6 +25,7 @@ graph TD
         init[/init\none-shot/]
         server[panda-server\nREST API / httpd]
         jedi[panda-jedi\nworkload manager]
+        idds[idds\nworkflow task REST]
         harvester[harvester\nsubprocess jobs]
     end
 
@@ -40,7 +41,10 @@ graph TD
 
     harvester <-->|REST API| server
     harvester -->|upload output| rucio
+    idds      -->|insertTaskParams| server
+    idds      -.->|doma_idds schema| postgres
     client    -->|"http://localhost:25080"| server
+    client    -->|"http://localhost:25444"| idds
 ```
 
 ## Service dependency order
@@ -147,10 +151,80 @@ The `init` service runs `scripts/setup-queue.sh` once after `postgres` and
 3. Creates the `atlas_panda` schema with 261 VIEWs over `doma_panda` tables
 4. Seeds `resource_types` (`SCORE`), and a `jedi_work_queue` + `global_shares`
    row for the `epic` VO / `PANDA_TASK_LABEL` — required for the JEDI task path
-   (see below); direct job submission does not need them
+   (see below); direct job submission does not need them. A second
+   `epic`/`managed` pair is seeded for iDDS workflow tasks: the iDDS prompt
+   handler hardcodes `prodSourceLabel='managed'` in its create path (as of
+   iDDS 2.6.22; re-verify on upgrade)
+5. Creates the `doma_idds` schema (owned by the PanDA role) for the iDDS
+   service; the iDDS container's entrypoint creates its tables from the ORM
+   metadata on first start
 
 `panda-jedi` has `depends_on: init: service_completed_successfully`, so it will not
 start until the init container exits 0.
+
+### idds — workflow task creation (iDDS REST)
+
+The `idds` service runs the official [`ghcr.io/hsf/idds`](https://github.com/HSF/iDDS)
+image with a thin patch layer (`idds/` build context). httpd serves the WSGI app
+under `/idds` on 8080 (plain HTTP) and 8443 (TLS), exposing
+`POST /idds/workflow_task`. The handler records iDDS requests/transforms/processings
+in the compose postgres (`doma_idds` schema) and submits the PanDA task
+synchronously via panda-client — the same `insertTaskParams` path as
+`panda_api.submit_task`. This is the entry point used by the SWF panda-workers
+transceiver (message or REST mode) to create worker tasks per run.
+
+Configuration flows through the image's own machinery: the entrypoint shim
+(`idds/entrypoint.sh`) renders an override file from the `IDDS_*` compose
+environment and the image's `start-daemon.sh` merges it over its config
+defaults (`IDDS_OVERRIDE_IDDS_CONFIGS`). The agent chain (clerk, transformer,
+submitter, ...) is disabled by the `supervisord_idds.ini` guard bind: each
+of the image's per-agent supervisord programs exports `IDDS_AGENTS`, which
+`load_config_agents()` reads before the `[main] agents` config, so the
+setting cannot disable them — the programs themselves must not be installed
+(see `idds/supervisord_idds.ini` and the entrypoint shim). The create path
+submits synchronously and needs none of the carriers. Database bootstrap is
+also the image's own (`create_database.py`: schema-tolerant ORM `create_all`
++ alembic stamp, then `alembic upgrade heads`), so warm
+`docker compose up` is a no-op.
+
+Two upstream bugs (as of idds 2.6.22) are patched at image build time, both
+documented in `idds/Dockerfile`: the workflow_task REST layer unpacks the
+`create_workflow_task` return as a 6-tuple while the handler returns a dict
+(every successful create raised ValueError; `run_id` is also passed through to
+the response body), and the image's default `panda.cfg` points at the
+production DOMA server with OIDC auth — the shim writes a dev `panda.cfg`
+pointing at the compose panda-server with auth disabled. The transform-naming
+collision (one transform per workflow per day) was fixed upstream in 2.6.22
+via the `fast_processing` flag; the compose stack does not set it, so
+transforms are per-run.
+
+**Lifecycle commands are recorded, not executed.** In 2.6.22
+`close_workflow_task` only marks processings `ToCancel` and `adjust_worker`
+only writes `transform_metadata`; both rely on the carrier agent to act on
+them ("the carrier agent will detect ToCancel and close the PanDA task"),
+and that agent does not run here. The same applies to `abort`/`retry`
+commands. Callers get HTTP 200, but the PanDA task is never closed or
+adjusted through this path — swf-panda-workers in REST mode must not assume
+tasks were closed. (The iDDS records are still correct: a later deployment
+of the agent chain would pick the commands up.)
+
+**Create is not idempotent.** The iDDS request/transform/processing rows
+are committed before the PanDA submission is attempted, and the REST layer
+raises (5xx) only when the submission failed. A caller retrying a failed
+create therefore inserts a *second* set of rows under a new request_id —
+and may also hit the `TRANSFORMS_NAME_UQ` constraint for the same run.
+Retries should be driven by the `run_id` ↔ task mapping (query first),
+not by blind re-submission.
+
+**Auth model (dev stack).** In production httpd terminates TLS and exports
+the client certificate DN as `SSL_CLIENT_S_DN` in the WSGI environ. This
+stack serves plain HTTP, so the wsgi wrapper (see `idds/Dockerfile`)
+injects `IDDS_DEV_DN` as the client DN for *every* request: iDDS reads the
+environ before any client-supplied `SSL-CLIENT-S-DN` header, so every caller
+is authenticated as the dev identity — which is a `super_user` in
+`idds/auth.cfg`. The service is therefore effectively unauthenticated and
+publishes its port on loopback only (`127.0.0.1:25444`); a deployment behind
+real TLS leaves `IDDS_DEV_DN` unset, and the header path applies again.
 
 ### pg_cron maintenance jobs
 
