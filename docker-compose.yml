@@ -318,7 +318,7 @@ services:
       - ./config/harvester/plugins/rucio_stager.py:/harvester/plugins/rucio_stager.py:ro
       - ./scripts/panda-worker.sh:/harvester/panda-worker.sh:ro
       - ./config/rucio/rucio-ci.cfg:/opt/rucio/etc/rucio.cfg:ro
-      - rucio-rse-data:/tmp/rucio_rse
+      - /tmp/rucio_rse:/tmp/rucio_rse
       # Must be a host bind, not a named volume. DockerSubmitter asks the
       # host daemon to bind-mount <outputBaseDir>/worker-N into each worker,
       # and the daemon resolves that path on the HOST. With a named volume
@@ -395,7 +395,7 @@ services:
       # below uses it.
       RUCIO_CFG_API_ENDPOINTS: accounts,dids,rses,scopes,replicas,auth,config,credentials,identities,meta_conventions,rules,subscriptions,ping
     volumes:
-      - rucio-rse-data:/tmp/rucio_rse
+      - /tmp/rucio_rse:/tmp/rucio_rse
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost/ping || exit 1"]
       interval: 5s
@@ -410,4 +410,3 @@ volumes:
   activemq-data:
   harvester-logs:
   harvester-workdir:
-  rucio-rse-data:
