@@ -158,7 +158,7 @@ take `--inDS` inputs from such an RSE generate jobs whose input files stay
 | `25080` | `panda-server` | HTTP | PanDA REST API |
 | `61613` | `activemq` | STOMP | Message broker (PanDA ↔ JEDI) |
 | `61616` | `activemq` | OpenWire | Message broker (alternate) |
-| `8161` | `activemq` | HTTP | Web console (admin/admin) |
+| `8161` | `activemq` | HTTP | Web console (`ACTIVEMQ_CONSOLE_USER` / `ACTIVEMQ_CONSOLE_PASSWORD` from `.env`) |
 
 > **Note:** HTTPS (port `25443`) is **not** configured in the dev stack.
 > Use the HTTP endpoint for all local development and CI.
