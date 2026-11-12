@@ -52,19 +52,27 @@ services:
   # ActiveMQ — message broker for PanDA server ↔ JEDI communication
   # The image CMD defaults to "sleep infinity"; override to start broker.
   # No JAAS auth in dev — default config accepts any STOMP credentials.
+  # The web console on 8161 logs in with ACTIVEMQ_CONSOLE_USER /
+  # ACTIVEMQ_CONSOLE_PASSWORD from .env; the entrypoint shim renders the
+  # Jetty realm from them.
   # ────────────────────────────────────────────────────────────────
   activemq:
     image: ghcr.io/pandawms/panda-activemq:latest
     restart: unless-stopped
+    entrypoint: /opt/activemq/bin/compose-entrypoint.sh
     command: ["/opt/activemq/bin/run-activemq-services"]
     environment:
       # Disable JDK 18 cgroup v2 detection bug (JDK-8281631) that crashes the JVM
       JAVA_TOOL_OPTIONS: "-XX:-UseContainerSupport"
+      # Web console login (port 8161); must be set in .env.
+      ACTIVEMQ_CONSOLE_USER: ${ACTIVEMQ_CONSOLE_USER:?set ACTIVEMQ_CONSOLE_USER in .env}
+      ACTIVEMQ_CONSOLE_PASSWORD: ${ACTIVEMQ_CONSOLE_PASSWORD:?set ACTIVEMQ_CONSOLE_PASSWORD in .env}
     ports:
       - "61613:61613"   # STOMP (used by panda-server / harvester)
-      - "8161:8161"     # Web console (admin)
+      - "8161:8161"     # Web console
     volumes:
       - activemq-data:/appdata/activemq
+      - ./config/activemq/entrypoint.sh:/opt/activemq/bin/compose-entrypoint.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "nc -z localhost 61613"]
       interval: 15s
