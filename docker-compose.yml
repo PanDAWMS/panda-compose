@@ -281,7 +281,14 @@ services:
       panda-server:
         condition: service_healthy
     environment:
-      IDDS_DB_URL: postgresql://${PANDA_DB_USER:-panda}:${PANDA_DB_PASSWORD:-panda_secret}@postgres:5432/${PANDA_DB_NAME:-panda_db}
+      # Credential fields passed separately; the entrypoint shim URL-encodes
+      # them when building IDDS_DB_URL (compose interpolation would inject
+      # raw values, breaking passwords containing % @ / etc.).
+      IDDS_DB_HOST: postgres
+      IDDS_DB_PORT: ${PANDA_DB_PORT:-5432}
+      IDDS_DB_NAME: ${PANDA_DB_NAME:-panda_db}
+      IDDS_DB_USER: ${PANDA_DB_USER:?set PANDA_DB_USER in .env}
+      IDDS_DB_PASSWORD: ${PANDA_DB_PASSWORD:?set PANDA_DB_PASSWORD in .env}
       IDDS_DB_SCHEMA: doma_idds
       # container-internal; the image's httpd serves /idds on this port
       IDDS_REST_HOST: http://idds:8080/idds

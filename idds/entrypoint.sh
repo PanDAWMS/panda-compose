@@ -11,6 +11,25 @@ set -e
 
 mkdir -p /tmp/idds-overrides
 
+# Build the DB URL with URL-encoded credentials. Compose-side interpolation
+# of the password into a postgresql:// URL passes it through raw, so a
+# password like dev%40secret is decoded by the driver as dev@secret and
+# auth fails confusingly. Encode here, BEFORE the ConfigParser % escaping
+# below (an encoded %25 must still become %%%%25 for the two interpolating
+# ConfigParser boundaries).
+IDDS_DB_URL="$(python3 <<'PYEOF'
+import os, urllib.parse
+print("postgresql://%s:%s@%s:%s/%s" % (
+    urllib.parse.quote(os.environ["IDDS_DB_USER"], safe=""),
+    urllib.parse.quote(os.environ["IDDS_DB_PASSWORD"], safe=""),
+    os.environ.get("IDDS_DB_HOST", "postgres"),
+    os.environ.get("IDDS_DB_PORT", "5432"),
+    os.environ.get("IDDS_DB_NAME", "panda_db"),
+))
+PYEOF
+)"
+export IDDS_DB_URL
+
 # Render the idds.cfg override from the environment. The value passes
 # through TWO interpolating ConfigParser boundaries: this file is read by
 # start-daemon's merge_idds_configs.py (which both reads and writes with

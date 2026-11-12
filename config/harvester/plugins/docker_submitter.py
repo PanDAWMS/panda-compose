@@ -217,7 +217,14 @@ class DockerSubmitter(PluginBase):
                     exec_str = unquote_plus(parts[i + 1])
                     break
             if not exec_str:
-                exec_str = "echo 'no exec string found in jobPars'"
+                # iDDS prompt-wrapper jobs carry "--run_id ... --idle_timeout ..."
+                # instead of -p, and the wrapper URL is not executable in the
+                # container. Failing loudly beats the old silent
+                # `echo 'no exec string found in jobPars'` success.
+                raise RuntimeError(
+                    f"URL transformation {transformation!r} but no -p exec string in jobPars "
+                    f"(jobPars={job_pars!r}); refusing to run a no-op"
+                )
             wLog.debug(f"URL transformation; extracted exec_str={exec_str!r}")
             return exec_str
 
