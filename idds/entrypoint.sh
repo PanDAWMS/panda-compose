@@ -100,6 +100,23 @@ rm -f /opt/idds/config/idds/idds.cfg \
       /opt/idds/config/idds/gacl \
       /opt/idds/config/rucio.cfg
 
+# Render alembic.ini with OUR database settings. The stock
+# config_default/alembic.ini ships sqlalchemy.url = driver://user:pass@... and
+# version_table_schema = DOMA_IDDS; left in place, alembic env.py reads those
+# placeholders and stamp/upgrade hit the wrong (or no) database while
+# create_database's ORM engine - driven by the merged idds.cfg - creates the
+# right tables. Write the real URL/schema here. Single-%% escaping only:
+# alembic's Config is read once by env.py (no merge step), unlike idds.cfg.
+# The URL was URL-encoded above, so an encoded %25 must become %%25 here.
+PCT_URL=$(printf '%s' "$IDDS_DB_URL" | sed 's/%/%%/g')
+cat > /opt/idds/config/idds/alembic.ini <<EOF
+[alembic]
+script_location = idds.orm.base:alembic
+version_path_separator = os
+sqlalchemy.url = ${PCT_URL}
+version_table_schema = ${IDDS_DB_SCHEMA}
+EOF
+
 # Agent chain suppression. The [main] agents = setting has no effect on
 # the carrier programs: each supervisord agent program sets IDDS_AGENTS
 # in its environment, and load_config_agents() reads that before the

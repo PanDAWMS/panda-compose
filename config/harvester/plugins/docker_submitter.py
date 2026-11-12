@@ -216,11 +216,18 @@ class DockerSubmitter(PluginBase):
                 if p == "-p" and i + 1 < len(parts):
                     exec_str = unquote_plus(parts[i + 1])
                     break
+            if not exec_str and "--run_id" in parts:
+                # iDDS prompt-wrapper jobs (run_prompt_wrapper): the worker
+                # container runs the wrapper binary, which pulls the payload
+                # for --run_id from the message broker / iDDS REST. Delegate
+                # the whole jobPars to the transformation as the command.
+                wrapper = transformation.rsplit("/", 1)[-1] or "run_prompt_wrapper"
+                exec_str = f"{wrapper} {job_pars}"
+                wLog.debug(f"prompt-wrapper transformation; exec_str={exec_str!r}")
+                return exec_str
             if not exec_str:
-                # iDDS prompt-wrapper jobs carry "--run_id ... --idle_timeout ..."
-                # instead of -p, and the wrapper URL is not executable in the
-                # container. Failing loudly beats the old silent
-                # `echo 'no exec string found in jobPars'` success.
+                # Genuinely malformed runGen-style job: fail loudly instead
+                # of the old silent `echo 'no exec string found in jobPars'`.
                 raise RuntimeError(
                     f"URL transformation {transformation!r} but no -p exec string in jobPars "
                     f"(jobPars={job_pars!r}); refusing to run a no-op"
