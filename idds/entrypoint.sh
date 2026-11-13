@@ -108,14 +108,19 @@ rm -f /opt/idds/config/idds/idds.cfg \
 # right tables. Write the real URL/schema here. Single-%% escaping only:
 # alembic's Config is read once by env.py (no merge step), unlike idds.cfg.
 # The URL was URL-encoded above, so an encoded %25 must become %%25 here.
-PCT_URL=$(printf '%s' "$IDDS_DB_URL" | sed 's/%/%%/g')
-cat > /opt/idds/config/idds/alembic.ini <<EOF
-[alembic]
-script_location = idds.orm.base:alembic
-version_path_separator = os
-sqlalchemy.url = ${PCT_URL}
-version_table_schema = ${IDDS_DB_SCHEMA}
-EOF
+python3 - <<'PYEOF'
+import configparser, os
+
+cfg = configparser.ConfigParser(interpolation=None)
+with open("/opt/idds/config_default/alembic.ini") as stream:
+    cfg.read_file(stream)
+cfg.set("alembic", "script_location", "idds.orm.base:alembic")
+cfg.set("alembic", "sqlalchemy.url", os.environ["IDDS_DB_URL"].replace("%", "%%"))
+cfg.set("alembic", "version_table_schema", os.environ["IDDS_DB_SCHEMA"])
+cfg.set("alembic", "version_path_separator", "os")
+with open("/opt/idds/config/idds/alembic.ini", "w") as stream:
+    cfg.write(stream)
+PYEOF
 
 # Agent chain suppression. The [main] agents = setting has no effect on
 # the carrier programs: each supervisord agent program sets IDDS_AGENTS
