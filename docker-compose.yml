@@ -258,6 +258,80 @@ services:
       PANDA_TASK_LABEL: ${PANDA_TASK_LABEL:-test}
 
   # ────────────────────────────────────────────────────────────────
+  # iDDS — REST service for workflow task creation.
+  # Exposes POST /idds/workflow_task on the official ghcr.io/hsf/idds
+  # image (httpd + WSGI under the /idds prefix): records iDDS requests/
+  # transforms/processings in the postgres (doma_idds schema) and submits
+  # the PanDA task synchronously via panda-client. Used by the SWF
+  # panda-workers transceiver (message or REST mode). Config is rendered
+  # from IDDS_* env by the entrypoint shim and merged by the image's own
+  # start-daemon machinery over config defaults; the agent chain is
+  # disabled by the supervisord_idds.ini guard bind (the image's
+  # per-agent supervisord programs set IDDS_AGENTS, which overrides any
+  # [main] agents config, so the programs themselves must not be
+  # installed - see idds/supervisord_idds.ini).
+  # ────────────────────────────────────────────────────────────────
+  idds:
+    build: ./idds
+    image: pandawms/idds-compose:dev
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      panda-server:
+        condition: service_healthy
+    environment:
+      # Credential fields passed separately; the entrypoint shim URL-encodes
+      # them when building IDDS_DB_URL (compose interpolation would inject
+      # raw values, breaking passwords containing % @ / etc.).
+      IDDS_DB_HOST: postgres
+      IDDS_DB_PORT: ${PANDA_DB_PORT:-5432}
+      IDDS_DB_NAME: ${PANDA_DB_NAME:-panda_db}
+      IDDS_DB_USER: ${PANDA_DB_USER:?set PANDA_DB_USER in .env}
+      IDDS_DB_PASSWORD: ${PANDA_DB_PASSWORD:?set PANDA_DB_PASSWORD in .env}
+      IDDS_DB_SCHEMA: doma_idds
+      # container-internal; the image's httpd serves /idds on this port
+      IDDS_REST_HOST: http://idds:8080/idds
+      # Dev-stack identity: the wsgi wrapper injects it as the client DN
+      # for every caller (the trusted-TLS-proxy model; see idds/Dockerfile).
+      # Must match allow_users in the auth override.
+      IDDS_DEV_DN: /CN=idds/O=Dev/C=CH
+      # idds.core reads its auth config from IDDS_AUTH_CONFIG once the
+      # shim has placed the merged file (the image generates it under
+      # /opt/idds/config/idds/auth.cfg).
+      IDDS_AUTH_CONFIG: /opt/idds/config/idds/auth.cfg
+      # Hardcoded container-internal URLs rather than ${PANDA_URL}: that
+      # variable is documented for export from the host shell (localhost
+      # values), which would override .env and point this container at a
+      # nonexistent localhost panda-server. insertTaskParams posts to
+      # baseURLSSL, so the SSL URL must also be plain HTTP: panda-server's
+      # compose deployment is HTTP-only.
+      PANDA_URL: http://panda-server:80/server/panda
+      PANDA_URL_SSL: http://panda-server:80/server/panda
+      PANDACACHE_URL: http://panda-server:80/server/panda
+    volumes:
+      # auth override consumed by start-daemon's merge (IDDS_OVERRIDE_AUTH_CONFIGS
+      # is set to this path by the entrypoint shim after it copies the file;
+      # a plain bind keeps the repo file authoritative)
+      - ./idds/auth.cfg:/tmp/idds-overrides/auth.cfg.source:ro
+      # Presence of this file makes start-daemon skip copying the agent-chain
+      # supervisord programs (clerk/transformer/submitter/poller/receiver/
+      # trigger/finisher) - see the file's comments. Without it the carriers
+      # run and act on the records create_workflow_task writes.
+      - ./idds/supervisord_idds.ini:/opt/idds/config/idds/supervisord_idds.ini:ro
+    ports:
+      # Loopback only: with IDDS_DEV_DN set the service is effectively
+      # unauthenticated (every caller becomes the dev identity, a
+      # super_user) - see the wsgi wrapper in idds/Dockerfile.
+      - "127.0.0.1:25444:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/idds/ping || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  # ────────────────────────────────────────────────────────────────
   # Harvester — resource-facing pilot submission service.
   # Runs subprocess_submitter / subprocess_monitor plugins (mounted
   # from ./scripts/) so jobs execute as local subprocesses with no
