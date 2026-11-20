@@ -7,6 +7,14 @@ on:
     branches: [main]
 
 jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run render-panda-queues unit tests
+        run: python3 -m unittest discover -s tests -v
+
   smoke-test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -19,6 +27,12 @@ jobs:
         with:
           ref: ${{ github.sha }}
           timeout: '300'
+          # Override the queue-default worker image for the queue-default
+          # test below: a small public image, deliberately different from
+          # the per-job image used by the first integration test
+          # (python:3.12-alpine), so each test proves its own path.
+          env-overrides: |
+            PANDA_WORKER_IMAGE=python:3.13-alpine
 
       - name: Verify Harvester is running
         run: |
@@ -48,6 +62,32 @@ jobs:
           fi
           echo "Harvester is healthy."
 
+      - name: Verify rendered queue config (template inheritance)
+        run: |
+          # The harvester renders panda_queues.cfg from
+          # config/harvester/panda_queues.template.json via
+          # scripts/render-panda-queues.py. Concrete queues must inherit the
+          # submitter block (incl. containerImage) from the shared template
+          # queue through templateQueueName — this is what DockerSubmitter
+          # falls back to for jobs without a per-job container_name.
+          # This also checks the compose -> env -> render chain for
+          # PANDA_WORKER_IMAGE up front, in seconds, instead of letting a
+          # broken override surface only when the queue-default job below
+          # lands in the wrong container ~4 minutes later.
+          # Runs after the health wait: the file only appears once the
+          # harvester entrypoint finishes its setup and renders the config.
+          docker exec ${PANDA_COMPOSE_PROJECT}-harvester-1 \
+            python3 -c "
+          import json
+          cfg = json.load(open('/var/lib/panda/panda_queues.cfg'))
+          template = cfg['panda-compose-local.template']
+          assert template['submitter']['name'] == 'DockerSubmitter', template['submitter']
+          assert template['submitter']['containerImage'] == 'python:3.13-alpine', template['submitter']
+          queue = cfg['PANDA_COMPOSE_LOCAL']
+          assert queue['templateQueueName'] == 'panda-compose-local.template', queue
+          print('rendered queue config OK; template containerImage =', template['submitter']['containerImage'])
+          "
+
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
@@ -62,8 +102,9 @@ jobs:
           # Use --container to specify a per-job container image, mirroring PanDA's
           # production container_name field. The DockerSubmitter reads this from
           # job.jobParams["container_name"] and prefers it over the queue-level default.
-          # python:3.12-alpine is deliberately different from the queue default (alpine:latest)
-          # to prove per-job container selection is working.
+          # python:3.12-alpine is deliberately different from the queue default
+          # (PANDA_WORKER_IMAGE=python:3.13-alpine in this run) to prove per-job
+          # container selection is working.
           JOB_ID=$(python3 $PANDA_COMPOSE_DIR/scripts/pandajob-submit \
             --site PANDA_COMPOSE_LOCAL \
             --container python:3.12-alpine \
@@ -149,6 +190,61 @@ jobs:
             exit 1
           fi
 
+      - name: Integration test — queue-default container image
+        run: |
+          echo "=== Submitting job WITHOUT --container (queue default path) ==="
+          # The job above proves per-job container selection with --container.
+          # This one proves the queue-level default path: no container_name in
+          # the job spec, so DockerSubmitter must fall back to the
+          # containerImage inherited from the queue template
+          # (config/harvester/panda_queues.template.json), which for this run
+          # is overridden via PANDA_WORKER_IMAGE=python:3.13-alpine — a small
+          # public image, distinct from the per-job python:3.12-alpine, so
+          # each test proves its own path.
+          JOB_ID=$(python3 $PANDA_COMPOSE_DIR/scripts/pandajob-submit \
+            --site PANDA_COMPOSE_LOCAL \
+            --transformation sh \
+            --output user.alice.ci.default-image.out.txt \
+            --params "-c 'echo hello from queue-default image > user.alice.ci.default-image.out.txt; cat /etc/os-release | head -1'" \
+            --name ci-queue-default-image-test)
+          echo "Submitted PanDA job ID: $JOB_ID"
+          if ! [[ "$JOB_ID" =~ ^[0-9]+$ ]]; then
+            echo "ERROR: expected integer job ID, got: $JOB_ID"
+            exit 1
+          fi
+
+          echo "=== Waiting for job to reach finished/failed (timeout 20 min) ==="
+          DEADLINE=$((SECONDS + 1200))
+          while [[ $SECONDS -lt $DEADLINE ]]; do
+            JOB_STATUS=$(python3 $PANDA_COMPOSE_DIR/scripts/pandajob-status "$JOB_ID" \
+              | python3 -c "import sys,json; print(json.load(sys.stdin)['jobStatus'])")
+            echo "[$(date -u '+%H:%M:%S')] Job status: $JOB_STATUS"
+            case "$JOB_STATUS" in
+              finished) break ;;
+              failed|cancelled)
+                echo "ERROR: job ended in terminal state '$JOB_STATUS'"
+                exit 1 ;;
+            esac
+            sleep 15
+          done
+          if [[ "$JOB_STATUS" != "finished" ]]; then
+            echo "ERROR: job did not reach 'finished' within 20 minutes (last status: $JOB_STATUS)"
+            exit 1
+          fi
+
+          echo "=== Asserting the queue-default image was actually used ==="
+          # DockerSubmitter logs which image it picked per worker; prove the
+          # fallback went through the template (not a per-job override).
+          # The informational grep below is a pipeline whose status is
+          # tail's, so it must not be reused for the assertion: grep -q
+          # fails the step when the line is missing.
+          docker exec ${PANDA_COMPOSE_PROJECT}-harvester-1 \
+            sh -c "grep 'using queue default container image=' /var/log/harvester/panda-docker_submitter.log | tail -1"
+          docker exec ${PANDA_COMPOSE_PROJECT}-harvester-1 \
+            grep -q 'using queue default container image=python:3.13-alpine' /var/log/harvester/panda-docker_submitter.log \
+            || { echo "ERROR: queue-default job did not use PANDA_WORKER_IMAGE"; exit 1; }
+          echo "OK: queue-default container path verified"
+
       - name: Verify job output landed in Rucio
         run: |
           echo "=== RSE contents ==="
@@ -168,14 +264,20 @@ jobs:
             'http://localhost/dids/user.alice/dids/search?type=file')
           echo "$DIDS"
 
-          if [[ -z "$DIDS" || "$DIDS" == "[]" ]]; then
-            echo "ERROR: no output DIDs registered in Rucio scope user.alice"
-            echo "--- stager log ---"
-            docker exec ${PANDA_COMPOSE_PROJECT}-harvester-1 \
-              tail -n 50 /var/log/harvester/panda-stager.log 2>/dev/null || true
-            exit 1
-          fi
-          echo "OK: job output is registered in Rucio"
+          # Both integration jobs declare an output LFN; each must have been
+          # staged out and registered, otherwise the step passes on the first
+          # job's output alone. The search returns a bare JSON list of names,
+          # e.g. ["user.alice.ci.out.txt"].
+          for LFN in user.alice.ci.out.txt user.alice.ci.default-image.out.txt; do
+            if ! grep -q "\"$LFN\"" <<<"$DIDS"; then
+              echo "ERROR: output DID $LFN not registered in Rucio scope user.alice"
+              echo "--- stager log ---"
+              docker exec ${PANDA_COMPOSE_PROJECT}-harvester-1 \
+                tail -n 50 /var/log/harvester/panda-stager.log 2>/dev/null || true
+              exit 1
+            fi
+          done
+          echo "OK: outputs of both jobs are registered in Rucio"
 
       - name: Dump all service logs
         if: always()

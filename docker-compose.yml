@@ -302,6 +302,7 @@ services:
       PANDA_VERIFY_HOST: "off"
       HARVESTER_EXPERIMENT: ${HARVESTER_EXPERIMENT:-wlcg}
       PANDA_QUEUES: ${PANDA_QUEUES:-PANDA_COMPOSE_LOCAL}
+      PANDA_WORKER_IMAGE: ${PANDA_WORKER_IMAGE:-}
       RUCIO_HOME: /opt/rucio
       RUCIO_CONFIG: /opt/rucio/etc/rucio.cfg
       http_proxy: ${HTTP_PROXY:-}
