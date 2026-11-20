@@ -264,14 +264,20 @@ jobs:
             'http://localhost/dids/user.alice/dids/search?type=file')
           echo "$DIDS"
 
-          if [[ -z "$DIDS" || "$DIDS" == "[]" ]]; then
-            echo "ERROR: no output DIDs registered in Rucio scope user.alice"
-            echo "--- stager log ---"
-            docker exec ${PANDA_COMPOSE_PROJECT}-harvester-1 \
-              tail -n 50 /var/log/harvester/panda-stager.log 2>/dev/null || true
-            exit 1
-          fi
-          echo "OK: job output is registered in Rucio"
+          # Both integration jobs declare an output LFN; each must have been
+          # staged out and registered, otherwise the step passes on the first
+          # job's output alone. The search returns a bare JSON list of names,
+          # e.g. ["user.alice.ci.out.txt"].
+          for LFN in user.alice.ci.out.txt user.alice.ci.default-image.out.txt; do
+            if ! grep -q "\"$LFN\"" <<<"$DIDS"; then
+              echo "ERROR: output DID $LFN not registered in Rucio scope user.alice"
+              echo "--- stager log ---"
+              docker exec ${PANDA_COMPOSE_PROJECT}-harvester-1 \
+                tail -n 50 /var/log/harvester/panda-stager.log 2>/dev/null || true
+              exit 1
+            fi
+          done
+          echo "OK: outputs of both jobs are registered in Rucio"
 
       - name: Dump all service logs
         if: always()

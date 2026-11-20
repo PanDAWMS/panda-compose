@@ -29,10 +29,13 @@ def run_render(env_extra, template=TEMPLATE):
     """Run the render script in a temp env; return (stdout, rendered config)."""
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "panda_queues.cfg"
+        # The env carries exactly what the script reads: the template and
+        # output paths plus PANDA_QUEUES and PANDA_WORKER_IMAGE. A minimal
+        # PATH is kept in case the script ever shells out.
         env = {
+            "PATH": "/usr/bin:/bin",
             "PANDA_QUEUES_TEMPLATE": str(template),
             "PANDA_QUEUES_OUTPUT": str(out),
-            # start from a clean env; the script only reads these three vars
             "PANDA_QUEUES": "PANDA_COMPOSE_LOCAL",
             "PANDA_WORKER_IMAGE": "",
         }
@@ -91,6 +94,15 @@ class TestRenderPandaQueues(unittest.TestCase):
             "panda-compose/snakemake-worker:9.27.1",
         )
         self.assertIn("panda-compose/snakemake-worker:9.27.1", stdout)
+
+    def test_worker_image_override_requires_submitter_block(self):
+        """PANDA_WORKER_IMAGE with a submitter-less template fails loudly."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / "template.json"
+            bad.write_text(json.dumps({TEMPLATE_QUEUE: {}}))
+            with self.assertRaises(subprocess.CalledProcessError) as ctx:
+                run_render({"PANDA_WORKER_IMAGE": "img:latest"}, template=bad)
+            self.assertIn("submitter block missing", ctx.exception.stderr)
 
 
 if __name__ == "__main__":
