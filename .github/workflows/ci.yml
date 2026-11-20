@@ -230,10 +230,13 @@ jobs:
           echo "=== Asserting the queue-default image was actually used ==="
           # DockerSubmitter logs which image it picked per worker; prove the
           # fallback went through the template (not a per-job override).
+          # The informational grep below is a pipeline whose status is
+          # tail's, so it must not be reused for the assertion: grep -q
+          # fails the step when the line is missing.
           docker exec ${PANDA_COMPOSE_PROJECT}-harvester-1 \
             sh -c "grep 'using queue default container image=' /var/log/harvester/panda-docker_submitter.log | tail -1"
           docker exec ${PANDA_COMPOSE_PROJECT}-harvester-1 \
-            sh -c "grep 'using queue default container image=python:3.13-alpine' /var/log/harvester/panda-docker_submitter.log | tail -1" \
+            grep -q 'using queue default container image=python:3.13-alpine' /var/log/harvester/panda-docker_submitter.log \
             || { echo "ERROR: queue-default job did not use PANDA_WORKER_IMAGE"; exit 1; }
           echo "OK: queue-default container path verified"
 
