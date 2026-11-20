@@ -24,7 +24,7 @@
     "submitter": {
       "name": "DockerSubmitter",
       "module": "docker_submitter",
-      "containerImage": "alpine:latest",
+      "containerImage": "panda-compose/snakemake-worker:9.27.1",
       "dockerSocket": "unix:///var/run/docker.sock",
       "outputBaseDir": "/tmp/harvester_output",
       "rseBaseDir": "/tmp/rucio_rse",

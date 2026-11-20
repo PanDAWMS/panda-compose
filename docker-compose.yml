@@ -316,6 +316,7 @@ services:
       - ./config/harvester/plugins/docker_submitter.py:/harvester/plugins/docker_submitter.py:ro
       - ./config/harvester/plugins/docker_monitor.py:/harvester/plugins/docker_monitor.py:ro
       - ./config/harvester/plugins/rucio_stager.py:/harvester/plugins/rucio_stager.py:ro
+      - ./config/rucio:/config/rucio:ro
       - ./scripts/panda-worker.sh:/harvester/panda-worker.sh:ro
       - ./config/rucio/rucio-ci.cfg:/opt/rucio/etc/rucio.cfg:ro
       - /tmp/rucio_rse:/tmp/rucio_rse
@@ -394,6 +395,8 @@ services:
       # 'ping' is not in the default endpoint list, and the healthcheck
       # below uses it.
       RUCIO_CFG_API_ENDPOINTS: accounts,dids,rses,scopes,replicas,auth,config,credentials,identities,meta_conventions,rules,subscriptions,ping
+    ports:
+      - "25081:80"    # host access for local clients (snakemake rucio plugin)
     volumes:
       - /tmp/rucio_rse:/tmp/rucio_rse
     healthcheck:
