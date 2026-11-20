@@ -70,6 +70,10 @@ jobs:
           # submitter block (incl. containerImage) from the shared template
           # queue through templateQueueName — this is what DockerSubmitter
           # falls back to for jobs without a per-job container_name.
+          # This also checks the compose -> env -> render chain for
+          # PANDA_WORKER_IMAGE up front, in seconds, instead of letting a
+          # broken override surface only when the queue-default job below
+          # lands in the wrong container ~4 minutes later.
           # Runs after the health wait: the file only appears once the
           # harvester entrypoint finishes its setup and renders the config.
           docker exec ${PANDA_COMPOSE_PROJECT}-harvester-1 \
@@ -78,7 +82,7 @@ jobs:
           cfg = json.load(open('/var/lib/panda/panda_queues.cfg'))
           template = cfg['panda-compose-local.template']
           assert template['submitter']['name'] == 'DockerSubmitter', template['submitter']
-          assert template['submitter']['containerImage'], 'template containerImage must not be empty'
+          assert template['submitter']['containerImage'] == 'python:3.13-alpine', template['submitter']
           queue = cfg['PANDA_COMPOSE_LOCAL']
           assert queue['templateQueueName'] == 'panda-compose-local.template', queue
           print('rendered queue config OK; template containerImage =', template['submitter']['containerImage'])
@@ -98,8 +102,9 @@ jobs:
           # Use --container to specify a per-job container image, mirroring PanDA's
           # production container_name field. The DockerSubmitter reads this from
           # job.jobParams["container_name"] and prefers it over the queue-level default.
-          # python:3.12-alpine is deliberately different from the queue default (alpine:latest)
-          # to prove per-job container selection is working.
+          # python:3.12-alpine is deliberately different from the queue default
+          # (PANDA_WORKER_IMAGE=python:3.13-alpine in this run) to prove per-job
+          # container selection is working.
           JOB_ID=$(python3 $PANDA_COMPOSE_DIR/scripts/pandajob-submit \
             --site PANDA_COMPOSE_LOCAL \
             --container python:3.12-alpine \
