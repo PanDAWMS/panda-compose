@@ -3,3 +3,4 @@
 *.key
 docker-compose.override.yml
 .hermes/
+__pycache__/

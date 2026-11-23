@@ -72,7 +72,8 @@ Static configuration is mounted read-only into the containers:
 
 The default queue `PANDA_COMPOSE_LOCAL` uses Harvester's `DockerSubmitter` — jobs run
 as Docker containers on the host Docker daemon. The default container image is
-`alpine:latest`; override per job with `--container IMAGE`.
+`alpine:latest`; override per job with `--container IMAGE`, or for all jobs on a
+queue with the `PANDA_WORKER_IMAGE` environment variable (see `.env.example`).
 
 ## Relation to panda-k8s
 
@@ -122,7 +123,7 @@ echo "Submitted PanDA job $JOB_ID"
 | `--site SITE` | PanDA compute site / queue name (e.g. `TEST_SITE`, `PANDA_COMPOSE_LOCAL`) |
 | `--transformation PATH` | Executable to run inside the worker container |
 | `--params STRING` | Arguments passed to the transformation (default: `""`) |
-| `--container IMAGE` | Docker image for the job worker (overrides queue default `alpine:latest`) |
+| `--container IMAGE` | Docker image for the job worker (overrides queue default; see `PANDA_WORKER_IMAGE`) |
 | `--script PATH` | Script path (must be accessible inside the worker container) |
 | `--name NAME` | Human-readable job name (default: `panda-compose-job`) |
 | `--cores N` | CPU cores requested (default: 1) |

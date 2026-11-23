@@ -45,6 +45,21 @@ def main():
     if TEMPLATE_NAME not in config:
         sys.exit(f"template queue '{TEMPLATE_NAME}' missing from {template_path}")
 
+    # Queue-level worker image override. Concrete queues inherit the
+    # submitter block from the template queue via templateQueueName, so
+    # patching the template is enough. Without PANDA_WORKER_IMAGE the
+    # committed template default (alpine:latest) is kept.
+    worker_image = os.environ.get("PANDA_WORKER_IMAGE", "").strip()
+    if worker_image:
+        submitter = config[TEMPLATE_NAME].get("submitter")
+        if not isinstance(submitter, dict):
+            sys.exit(
+                f"submitter block missing from template queue '{TEMPLATE_NAME}' "
+                f"in {template_path}; cannot apply PANDA_WORKER_IMAGE={worker_image}"
+            )
+        submitter["containerImage"] = worker_image
+        print(f"Queue worker image override: {worker_image}")
+
     for name in names:
         config[name] = concrete_queue()
 
