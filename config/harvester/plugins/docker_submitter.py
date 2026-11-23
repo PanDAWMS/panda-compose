@@ -184,8 +184,9 @@ class DockerSubmitter(PluginBase):
             if os.path.lexists(dst):
                 try:
                     os.remove(dst)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    # stale symlink from a previous worker run — safe to replace
+                    wLog.debug(f"could not remove stale {dst}: {exc}")
             try:
                 os.symlink(src, dst)
                 wLog.debug(f"staged input {scope}:{lfn} -> {dst} (via symlink to {src})")
@@ -378,13 +379,50 @@ class DockerSubmitter(PluginBase):
                     worker_output_host: {"bind": "/output", "mode": "rw"},
                 }
                 if os.path.isdir(self.rseBaseDir):
-                    volumes[self.rseBaseDir] = {"bind": self.rseBaseDir, "mode": "ro"}
-                    rse_mount_desc = f"rse_mount={self.rseBaseDir}:{self.rseBaseDir}:ro"
+                    volumes[self.rseBaseDir] = {"bind": self.rseBaseDir, "mode": "rw"}
+                    rse_mount_desc = f"rse_mount={self.rseBaseDir}:{self.rseBaseDir}:rw"
                 else:
                     rse_mount_desc = f"rse_mount=disabled ({self.rseBaseDir} not present)"
+                # mount the rucio client config so the in-container snakemake
+                # (rucio storage plugin) can reach the Rucio server. Bind the
+                # host's real file path (compose mounts rucio-ci.cfg there).
+                rucio_cfg = os.environ.get("RUCIO_CONFIG", "/opt/rucio/etc/rucio.cfg")
+                # /opt/rucio/etc/rucio.cfg inside the harvester container is a
+                # bind mount of the host file, but the docker daemon (host
+                # namespace) sees that container path as a directory — so
+                # resolve the host source from /proc/self/mountinfo and bind
+                # the real file.
+                host_rucio_cfg = None
+                try:
+                    with open("/proc/self/mountinfo") as mf:
+                        for line in mf:
+                            # mountinfo: id parent major:minor root mountpoint opts...
+                            # root (index 3) is the host-side path of the bind
+                            parts = line.split()
+                            if len(parts) > 9 and parts[4] == rucio_cfg:
+                                host_rucio_cfg = parts[3]
+                                break
+                except OSError as exc:
+                    # /proc/self/mountinfo unreadable — fall through to the
+                    # /config/rucio-based fallback below.
+                    wLog.debug(f"could not parse /proc/self/mountinfo: {exc}")
+                # The compose project dir is /home/agent/panda/panda-compose
+                # on the host; inside the harvester container mountinfo shows
+                # the bind root as /agent/... . The docker daemon resolves
+                # bind sources on the HOST, so translate /agent/... ->
+                # /home/agent/... . Don't os.path.isfile()-check the translated
+                # path here: /home/agent is not mounted inside this container,
+                # but the daemon sees it fine. Validate via the /config/rucio
+                # compose bind instead (same content, host device).
+                if host_rucio_cfg and host_rucio_cfg.startswith("/agent/"):
+                    host_rucio_cfg = "/home/agent/" + host_rucio_cfg[len("/agent/"):]
+                if not host_rucio_cfg or not os.path.isfile("/config/rucio/rucio-ci.cfg"):
+                    host_rucio_cfg = "/home/agent/panda/panda-compose/config/rucio/rucio-ci.cfg"
+                volumes[host_rucio_cfg] = {"bind": "/opt/rucio/etc/rucio.cfg", "mode": "ro"}
+                rucio_mount_desc = f"rucio_cfg={host_rucio_cfg}"
                 wLog.debug(
                     f"running container image={image} command={command} "
-                    f"output_mount={worker_output_host}:/output {rse_mount_desc}"
+                    f"output_mount={worker_output_host}:/output {rse_mount_desc} {rucio_mount_desc}"
                 )
 
                 container = client.containers.run(
@@ -395,6 +433,15 @@ class DockerSubmitter(PluginBase):
                     remove=False,
                     volumes=volumes,
                     working_dir="/output",
+                    # join the compose network so the rucio client config's
+                    # 'rucio' hostname resolves inside the worker
+                    network="panda-compose_default",
+                    # the worker jobscript runs snakemake with the rucio
+                    # storage plugin, which needs the rucio client config
+                    environment={
+                        "RUCIO_HOME": os.environ.get("RUCIO_HOME", "/opt/rucio"),
+                        "RUCIO_CONFIG": os.environ.get("RUCIO_CONFIG", "/opt/rucio/etc/rucio.cfg"),
+                    },
                 )
                 workSpec.batchID = container.id
                 wLog.debug(f"started container id={container.id[:12]}")

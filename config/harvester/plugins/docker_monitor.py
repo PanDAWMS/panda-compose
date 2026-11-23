@@ -72,6 +72,14 @@ class DockerMonitor(PluginBase):
                 # Remove terminal containers so they don't accumulate.
                 if new_status in (WorkSpec.ST_finished, WorkSpec.ST_failed):
                     try:
+                        # capture container stdout/stderr before removal so
+                        # failed jobs are diagnosable from the harvester log
+                        try:
+                            clog = container.logs(stdout=True, stderr=True, tail=200)
+                            text = clog.decode(errors="replace") if isinstance(clog, bytes) else str(clog)
+                            wLog.info(f"container id={workSpec.batchID[:12]} exit={exit_code} logs:\n{text}")
+                        except Exception as log_exc:
+                            wLog.warning(f"could not read logs of {workSpec.batchID[:12]}: {log_exc}")
                         container.remove(force=True)
                         wLog.debug(f"removed container id={workSpec.batchID[:12]}")
                     except Exception as rm_exc:
