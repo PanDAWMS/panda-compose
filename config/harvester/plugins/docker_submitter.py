@@ -99,6 +99,12 @@ class DockerSubmitter(PluginBase):
         # jobPars entry. Must be a URL reachable from the harvester container;
         # the default follows the compose-internal panda-server hostname.
         self.pandaCacheBase = "http://panda-server:80/cache"
+        # Docker network the worker containers join, so compose-internal
+        # hostnames (e.g. 'rucio' in the rucio client config) resolve inside
+        # the worker. Default matches compose's <project>_default network for
+        # the default project name; override via the queue config when
+        # running with a custom project name (-p/--project-name).
+        self.workerNetwork = "panda-compose_default"
         PluginBase.__init__(self, **kwarg)
 
     def _resolve_image(self, job, wLog):
@@ -184,8 +190,9 @@ class DockerSubmitter(PluginBase):
             if os.path.lexists(dst):
                 try:
                     os.remove(dst)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    # stale symlink from a previous worker run — safe to replace
+                    wLog.debug(f"could not remove stale {dst}: {exc}")
             try:
                 os.symlink(src, dst)
                 wLog.debug(f"staged input {scope}:{lfn} -> {dst} (via symlink to {src})")
@@ -392,13 +399,61 @@ class DockerSubmitter(PluginBase):
                     worker_output_host: {"bind": "/output", "mode": "rw"},
                 }
                 if os.path.isdir(self.rseBaseDir):
-                    volumes[self.rseBaseDir] = {"bind": self.rseBaseDir, "mode": "ro"}
-                    rse_mount_desc = f"rse_mount={self.rseBaseDir}:{self.rseBaseDir}:ro"
+                    volumes[self.rseBaseDir] = {"bind": self.rseBaseDir, "mode": "rw"}
+                    rse_mount_desc = f"rse_mount={self.rseBaseDir}:{self.rseBaseDir}:rw"
                 else:
                     rse_mount_desc = f"rse_mount=disabled ({self.rseBaseDir} not present)"
+                # mount the rucio client config so the in-container snakemake
+                # (rucio storage plugin) can reach the Rucio server. Bind the
+                # host's real file path (compose mounts rucio-ci.cfg there).
+                rucio_cfg = os.environ.get("RUCIO_CONFIG", "/opt/rucio/etc/rucio.cfg")
+                # /opt/rucio/etc/rucio.cfg inside the harvester container is a
+                # bind mount of the host file, but the docker daemon (host
+                # namespace) sees that container path as a directory — so
+                # resolve the host source from /proc/self/mountinfo and bind
+                # the real file. Fall back to the compose-provided read-only
+                # bind of ./config/rucio (docker-compose.yml mounts it at
+                # /config/rucio), resolving its host source the same way —
+                # this keeps the plugin free of checkout-location assumptions.
+                host_rucio_cfg = None
+                fallback_rucio_cfg = None
+                try:
+                    with open("/proc/self/mountinfo") as mf:
+                        for line in mf:
+                            # mountinfo: id parent major:minor root mountpoint opts...
+                            # root (index 3) is the host-side path of the bind
+                            parts = line.split()
+                            if len(parts) <= 9:
+                                continue
+                            if parts[4] == rucio_cfg:
+                                host_rucio_cfg = parts[3]
+                            elif parts[4] == "/config/rucio":
+                                # directory bind of ./config/rucio; the file
+                                # sits at its root on the host
+                                fallback_rucio_cfg = parts[3] + "/rucio-ci.cfg"
+                except OSError as exc:
+                    wLog.debug(f"could not parse /proc/self/mountinfo: {exc}")
+                if not host_rucio_cfg:
+                    host_rucio_cfg = fallback_rucio_cfg
+                    if host_rucio_cfg:
+                        wLog.debug(
+                            "RUCIO_CONFIG not found in mountinfo; "
+                            f"falling back to /config/rucio bind source {host_rucio_cfg}"
+                        )
+                if not host_rucio_cfg:
+                    err = (
+                        "could not resolve the host path of the rucio client "
+                        f"config (RUCIO_CONFIG={rucio_cfg}); refusing to start "
+                        "the worker without it"
+                    )
+                    wLog.error(err)
+                    retList.append((False, err))
+                    continue
+                volumes[host_rucio_cfg] = {"bind": "/opt/rucio/etc/rucio.cfg", "mode": "ro"}
+                rucio_mount_desc = f"rucio_cfg={host_rucio_cfg}"
                 wLog.debug(
                     f"running container image={image} command={command} "
-                    f"output_mount={worker_output_host}:/output {rse_mount_desc}"
+                    f"output_mount={worker_output_host}:/output {rse_mount_desc} {rucio_mount_desc}"
                 )
 
                 container = client.containers.run(
@@ -409,6 +464,15 @@ class DockerSubmitter(PluginBase):
                     remove=False,
                     volumes=volumes,
                     working_dir="/output",
+                    # join the compose network so the rucio client config's
+                    # 'rucio' hostname resolves inside the worker
+                    network=self.workerNetwork,
+                    # the worker jobscript runs snakemake with the rucio
+                    # storage plugin, which needs the rucio client config
+                    environment={
+                        "RUCIO_HOME": os.environ.get("RUCIO_HOME", "/opt/rucio"),
+                        "RUCIO_CONFIG": os.environ.get("RUCIO_CONFIG", "/opt/rucio/etc/rucio.cfg"),
+                    },
                 )
                 workSpec.batchID = container.id
                 wLog.debug(f"started container id={container.id[:12]}")
